@@ -100,15 +100,193 @@ export default function QuizPage() {
     return () => clearInterval(interval)
   }, [quizStarted])
 
+  // Function to seed the database with initial quiz data
+  const seedDatabase = async () => {
+    try {
+      console.log('Attempting to seed database with initial quiz data...')
+      
+      // Check if quizzes table exists and is empty
+      const { data, error } = await supabase
+        .from('quizzes')
+        .select('count')
+      
+      // If there's an error, the table might not exist
+      if (error && error.code === '42P01') {
+        console.log('Quizzes table does not exist, creating it...')
+        
+        // Create the quizzes table
+        // Note: In a real application, you would use migrations or SQL scripts
+        // This is a simplified approach for demonstration purposes
+        try {
+          // We'll try to insert the first quiz, which should create the table
+          // if it doesn't exist (Supabase can auto-create tables)
+          const { error: createError } = await supabase
+            .from('quizzes')
+            .insert([seedQuizzes[0]])
+          
+          if (createError) {
+            console.error('Error creating quizzes table:', createError)
+            return
+          }
+          
+          console.log('Successfully created quizzes table')
+          
+          // Insert the rest of the quizzes
+          for (let i = 1; i < seedQuizzes.length; i++) {
+            const { error: insertError } = await supabase
+              .from('quizzes')
+              .insert([seedQuizzes[i]])
+            
+            if (insertError) {
+              console.error(`Error inserting quiz "${seedQuizzes[i].title}":`, insertError)
+            } else {
+              console.log(`Successfully inserted quiz: ${seedQuizzes[i].title}`)
+            }
+          }
+        } catch (createError) {
+          console.error('Error creating quizzes table:', createError)
+          return
+        }
+      }
+      // If there's no error but no data or empty data, the table exists but is empty
+      else if (!error && (!data || data.length === 0)) {
+        console.log('Quizzes table exists but is empty, seeding database...')
+        
+        // Insert seed quizzes into the database
+        for (const quiz of seedQuizzes) {
+          const { error: insertError } = await supabase
+            .from('quizzes')
+            .insert([quiz])
+          
+          if (insertError) {
+            console.error(`Error inserting quiz "${quiz.title}":`, insertError)
+          } else {
+            console.log(`Successfully inserted quiz: ${quiz.title}`)
+          }
+        }
+      } else if (error) {
+        console.error('Error checking quizzes table:', error)
+        return
+      } else {
+        console.log('Database already contains quizzes, skipping seed')
+      }
+      
+      console.log('Database seeding completed')
+    } catch (error) {
+      console.error('Error seeding database:', error)
+    }
+  }
+
+  // Helper function to validate quiz data structure
+  const validateQuizData = (quizData: any[]): Quiz[] => {
+    try {
+      // Check if the data is an array
+      if (!Array.isArray(quizData)) {
+        console.error('Quiz data is not an array')
+        return seedQuizzes
+      }
+      
+      // Validate each quiz
+      const validQuizzes = quizData.filter(quiz => {
+        // Check required fields
+        if (!quiz.id || !quiz.title || !quiz.description || !Array.isArray(quiz.questions)) {
+          console.error('Quiz missing required fields:', quiz)
+          return false
+        }
+        
+        // Check if questions are properly structured
+        const validQuestions = quiz.questions.every((q: any) => 
+          q.id && q.question && Array.isArray(q.options) && q.correctAnswer && q.type
+        )
+        
+        if (!validQuestions) {
+          console.error('Quiz has invalid questions:', quiz)
+          return false
+        }
+        
+        return true
+      })
+      
+      if (validQuizzes.length === 0) {
+        console.error('No valid quizzes found in data')
+        return seedQuizzes
+      }
+      
+      return validQuizzes as Quiz[]
+    } catch (error) {
+      console.error('Error validating quiz data:', error)
+      return seedQuizzes
+    }
+  }
+
   // Fetch quizzes on component mount
   useEffect(() => {
     const fetchQuizzes = async () => {
       try {
-        const { data, error } = await supabase.from("quizzes").select("*")
-        if (error) throw error
-        setQuizzes(data || seedQuizzes)
-      } catch (error) {
+        // First check if the quizzes table exists
+        const { error: tableCheckError } = await supabase
+          .from('quizzes')
+          .select('count')
+          .limit(1)
+          .single()
+        
+        // If there's an error with the table check, it might not exist
+        if (tableCheckError) {
+          // Check if it's a "relation does not exist" error (table not found)
+          if (tableCheckError.code === '42P01') {
+            console.log('Quizzes table does not exist, using seed data')
+            setError(undefined) // Clear any previous errors
+            setQuizzes(seedQuizzes)
+            
+            // Try to seed the database for future use
+            if (user) {
+              await seedDatabase()
+            }
+            return
+          } 
+          // Handle other types of errors
+          else {
+            console.error('Error checking quizzes table:', tableCheckError)
+            setError(`Database error: ${tableCheckError.message}`)
+            setQuizzes(seedQuizzes)
+            return
+          }
+        }
+        
+        // If table exists, try to fetch quizzes
+        const { data, error } = await supabase
+          .from("quizzes")
+          .select("*")
+        
+        if (error) {
+          console.error("Error fetching quizzes:", error)
+          setError(`Error fetching quizzes: ${error.message}`)
+          setQuizzes(seedQuizzes)
+          return
+        }
+        
+        // If we got data but it's empty, use seed data
+        if (!data || data.length === 0) {
+          console.log('No quizzes found in database, using seed data')
+          setError(undefined) // Clear any previous errors
+          setQuizzes(seedQuizzes)
+          
+          // Try to seed the database for future use
+          if (user) {
+            await seedDatabase()
+          }
+        } else {
+          console.log('Successfully fetched quizzes from database:', data.length)
+          setError(undefined) // Clear any previous errors
+          
+          // Validate the quiz data structure
+          const validatedQuizzes = validateQuizData(data)
+          setQuizzes(validatedQuizzes)
+        }
+      } catch (error: any) {
         console.error("Error fetching quizzes:", error)
+        setError(`Error fetching quizzes: ${error.message || JSON.stringify(error)}`)
+        // Fallback to seed data on error
         setQuizzes(seedQuizzes)
       } finally {
         setIsLoading(false)
@@ -116,7 +294,7 @@ export default function QuizPage() {
     }
 
     fetchQuizzes()
-  }, [])
+  }, [user])
 
   // Fetch user stats and progress when user changes
   useEffect(() => {
