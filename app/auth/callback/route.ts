@@ -10,14 +10,28 @@ export async function GET(request: Request) {
     if (code) {
       const cookieStore = cookies()
       const supabase = createRouteHandlerClient({ cookies: () => cookieStore })
-      await supabase.auth.exchangeCodeForSession(code)
+      
+      // Exchange code for session and handle errors
+      const { error } = await supabase.auth.exchangeCodeForSession(code)
+      
+      if (error) {
+        console.error('Error exchanging code for session:', error)
+        throw error
+      }
+      
+      // Verify session was created successfully
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (!session) {
+        throw new Error('Failed to create session')
+      }
     }
 
-    // Always redirect to the deployed site's quiz page
+    // After successful authentication, redirect to the deployed Vercel URL
     return NextResponse.redirect('https://persona-soit.vercel.app/quiz')
   } catch (error) {
     console.error('Auth callback error:', error)
-    // Always redirect to the deployed site's error page
+    // Redirect to the deployed error page
     return NextResponse.redirect('https://persona-soit.vercel.app/auth-error')
   }
 } 

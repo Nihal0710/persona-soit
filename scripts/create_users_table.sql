@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS public.users (
   display_name TEXT,
   photo_url TEXT,
   email TEXT,
+  phone TEXT,
   quizzes_taken INTEGER DEFAULT 0,
   avg_score INTEGER DEFAULT 0,
   total_score INTEGER DEFAULT 0,
@@ -34,12 +35,13 @@ USING (auth.uid() = id);
 CREATE OR REPLACE FUNCTION public.handle_new_user() 
 RETURNS TRIGGER AS $$
 BEGIN
-  INSERT INTO public.users (id, display_name, photo_url, email)
+  INSERT INTO public.users (id, display_name, photo_url, email, phone)
   VALUES (
     NEW.id, 
     NEW.raw_user_meta_data->>'full_name',
     NEW.raw_user_meta_data->>'avatar_url',
-    NEW.email
+    NEW.email,
+    NEW.raw_user_meta_data->>'phone'
   );
   RETURN NEW;
 END;

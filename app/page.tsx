@@ -10,14 +10,22 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from "@/components/ui/carousel"
 import { Badge } from "@/components/ui/badge"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import LoadingScreen from "@/components/loading-screen"
-import { ChevronRight, ArrowRight, Menu, X } from "lucide-react"
+import { ChevronRight, ArrowRight, Menu, X, LogOut, User } from "lucide-react"
 import ContactForm from "@/components/contact-form"
 import NewsletterForm from "@/components/newsletter-form"
+import AuthPopup from "@/components/auth-popup"
+import { useAuth } from "@/contexts/auth-context"
+import { forceLogout } from "@/lib/auth-utils"
 
 export default function Home() {
+  const { user, loading: authLoading } = useAuth()
   const [isLoading, setIsLoading] = useState(true)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+  const [isAuthPopupOpen, setIsAuthPopupOpen] = useState(false)
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -26,6 +34,17 @@ export default function Home() {
 
     return () => clearTimeout(timer)
   }, [])
+
+  const handleLogout = async () => {
+    try {
+      setIsLoggingOut(true)
+      await forceLogout()
+    } catch (error) {
+      console.error("Error during logout:", error)
+    } finally {
+      setIsLoggingOut(false)
+    }
+  }
 
   if (isLoading) {
     return <LoadingScreen />
@@ -82,10 +101,59 @@ export default function Home() {
             </Link>
           </nav>
 
-          {/* Desktop Join Button */}
-          <Button className="hidden md:flex bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-md">
-            Join Now
-          </Button>
+          {/* User Authentication */}
+          <div className="hidden md:flex items-center gap-4">
+            {user ? (
+              <div className="flex items-center gap-3">
+                <span className="text-white text-sm hidden lg:inline">{user.user_metadata?.full_name || user.email}</span>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Avatar className="cursor-pointer border-2 border-indigo-500/30 hover:border-indigo-500/70 transition-colors">
+                      <AvatarImage src={user.user_metadata?.avatar_url} alt={user.user_metadata?.full_name || "User"} />
+                      <AvatarFallback className="bg-indigo-900 text-white">
+                        {user.user_metadata?.full_name?.charAt(0) || user.email?.charAt(0) || "U"}
+                      </AvatarFallback>
+                    </Avatar>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="bg-[#131c31] border-indigo-900/20 text-white">
+                    <DropdownMenuItem className="hover:bg-indigo-900/30 cursor-pointer" asChild>
+                      <Link href="/quiz" className="flex items-center gap-2">
+                        <User className="h-4 w-4" />
+                        <span>Dashboard</span>
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem 
+                      className="hover:bg-indigo-900/30 cursor-pointer text-red-400 hover:text-red-300"
+                      onClick={handleLogout}
+                      disabled={isLoggingOut}
+                    >
+                      {isLoggingOut ? (
+                        <span className="flex items-center gap-2">
+                          <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          <span>Signing Out...</span>
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-2">
+                          <LogOut className="h-4 w-4" />
+                          <span>Sign Out</span>
+                        </span>
+                      )}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            ) : (
+              <Button 
+                onClick={() => setIsAuthPopupOpen(true)}
+                className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-md"
+              >
+                Join Now
+              </Button>
+            )}
+          </div>
 
           {/* Mobile Navigation Menu */}
           {isMobileMenuOpen && (
@@ -98,44 +166,85 @@ export default function Home() {
               <nav className="container flex flex-col gap-4">
                 <Link
                   href="/"
-                  className="text-sm font-medium text-white/80 transition-colors hover:text-white hover:bg-indigo-900/20 px-4 py-2 rounded-md"
+                  className="text-white/80 hover:text-white transition-colors py-2"
                   onClick={() => setIsMobileMenuOpen(false)}
                 >
                   Home
                 </Link>
                 <Link
                   href="#events"
-                  className="text-sm font-medium text-white/80 transition-colors hover:text-white hover:bg-indigo-900/20 px-4 py-2 rounded-md"
+                  className="text-white/80 hover:text-white transition-colors py-2"
                   onClick={() => setIsMobileMenuOpen(false)}
                 >
                   Event
                 </Link>
                 <Link
                   href="#"
-                  className="text-sm font-medium text-white/80 transition-colors hover:text-white hover:bg-indigo-900/20 px-4 py-2 rounded-md"
+                  className="text-white/80 hover:text-white transition-colors py-2"
                   onClick={() => setIsMobileMenuOpen(false)}
                 >
                   Gallery
                 </Link>
                 <Link
                   href="/quiz"
-                  className="text-sm font-medium text-white/80 transition-colors hover:text-white hover:bg-indigo-900/20 px-4 py-2 rounded-md"
+                  className="text-white/80 hover:text-white transition-colors py-2"
                   onClick={() => setIsMobileMenuOpen(false)}
                 >
                   Quiz
                 </Link>
                 <Link
                   href="#contact"
-                  className="text-sm font-medium text-white/80 transition-colors hover:text-white hover:bg-indigo-900/20 px-4 py-2 rounded-md"
+                  className="text-white/80 hover:text-white transition-colors py-2"
                   onClick={() => setIsMobileMenuOpen(false)}
                 >
                   Contact
                 </Link>
-                <Link href="/auth">
-                  <Button className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-md mx-4 w-full">
+                
+                {user ? (
+                  <div className="flex items-center justify-between border-t border-indigo-900/20 pt-4 mt-2">
+                    <div className="flex items-center gap-3">
+                      <Avatar>
+                        <AvatarImage src={user.user_metadata?.avatar_url} alt={user.user_metadata?.full_name || "User"} />
+                        <AvatarFallback className="bg-indigo-900 text-white">
+                          {user.user_metadata?.full_name?.charAt(0) || user.email?.charAt(0) || "U"}
+                        </AvatarFallback>
+                      </Avatar>
+                      <span className="text-white text-sm">{user.user_metadata?.full_name || user.email}</span>
+                    </div>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      onClick={handleLogout}
+                      disabled={isLoggingOut}
+                      className="text-red-400 hover:text-red-300 hover:bg-indigo-900/30"
+                    >
+                      {isLoggingOut ? (
+                        <span className="flex items-center">
+                          <svg className="animate-spin mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          <span>Signing Out...</span>
+                        </span>
+                      ) : (
+                        <span className="flex items-center">
+                          <LogOut className="mr-2 h-4 w-4" />
+                          <span>Sign Out</span>
+                        </span>
+                      )}
+                    </Button>
+                  </div>
+                ) : (
+                  <Button
+                    onClick={() => {
+                      setIsAuthPopupOpen(true)
+                      setIsMobileMenuOpen(false)
+                    }}
+                    className="mt-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-md"
+                  >
                     Join Now
                   </Button>
-                </Link>
+                )}
               </nav>
             </motion.div>
           )}
@@ -738,6 +847,9 @@ export default function Home() {
           <p className="text-center text-gray-500">©2025 The Personality Grooming Club. All Rights Reserved.</p>
         </div>
       </footer>
+
+      {/* Auth Popup */}
+      <AuthPopup isOpen={isAuthPopupOpen} onClose={() => setIsAuthPopupOpen(false)} />
     </div>
   )
 }

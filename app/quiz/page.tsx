@@ -15,6 +15,8 @@ import { useAuth } from "@/contexts/auth-context"
 import { supabase } from "@/lib/supabase"
 import { Quiz, Question, QuizAttempt } from "@/types/quiz"
 import { quizzes as seedQuizzes } from "@/lib/seed-data"
+import { forceLogout } from "@/lib/auth-utils"
+import AuthPopup from "@/components/auth-popup"
 
 export default function QuizPage() {
   const router = useRouter()
@@ -38,16 +40,287 @@ export default function QuizPage() {
     badges: 0
   })
   const [userProgress, setUserProgress] = useState<{quizId: string, title: string, score: number}[]>([])
+  
+  // Auth state
+  const [isAuthPopupOpen, setIsAuthPopupOpen] = useState(false)
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
+
+  // Function to handle successful authentication
+  const handleAuthSuccess = () => {
+    // Close the auth popup
+    setIsAuthPopupOpen(false)
+    
+    // Fetch user data
+    if (user) {
+      fetchUserStats()
+      fetchUserProgress()
+      fetchLeaderboard()
+    }
+  }
+
+  // Function to handle logout with loading state
+  const handleLogout = async () => {
+    try {
+      setIsLoggingOut(true)
+      setError(undefined)
+      
+      // Use the direct force logout utility instead of the context
+      await forceLogout()
+    } catch (error) {
+      console.error("Error during logout:", error)
+      setError("Failed to log out. Please try again.")
+      setIsLoggingOut(false)
+    }
+  }
+
+  // Check session on component mount and periodically
+  useEffect(() => {
+    const checkSession = async () => {
+      try {
+        const { data } = await supabase.auth.getSession()
+        if (!data.session) {
+          // If no session, reset user state
+          setActiveTab("dashboard")
+          if (quizStarted) {
+            setQuizStarted(false)
+            setError("Your session expired. Please sign in again.")
+          }
+        }
+      } catch (error) {
+        console.error("Error checking session:", error)
+      }
+    }
+
+    // Check session immediately
+    checkSession()
+
+    // Check session every 5 minutes
+    const interval = setInterval(checkSession, 5 * 60 * 1000)
+    
+    return () => clearInterval(interval)
+  }, [quizStarted])
+
+  // Fetch quizzes on component mount
+  useEffect(() => {
+    const fetchQuizzes = async () => {
+      try {
+        const { data, error } = await supabase.from("quizzes").select("*")
+        if (error) throw error
+        setQuizzes(data || seedQuizzes)
+      } catch (error) {
+        console.error("Error fetching quizzes:", error)
+        setQuizzes(seedQuizzes)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchQuizzes()
+  }, [])
+
+  // Fetch user stats and progress when user changes
+  useEffect(() => {
+    if (user) {
+      fetchUserStats()
+      fetchUserProgress()
+      fetchLeaderboard()
+    }
+  }, [user])
+
+  // Listen for auth state changes from the popup
+  useEffect(() => {
+    // When the auth popup closes, check if we have a user and fetch data
+    if (!isAuthPopupOpen && user) {
+      fetchUserStats()
+      fetchUserProgress()
+      fetchLeaderboard()
+    }
+  }, [isAuthPopupOpen, user])
+
+  // Timer for quiz
+  useEffect(() => {
+    let timer: NodeJS.Timeout
+
+    if (quizStarted && selectedQuiz && timeLeft > 0) {
+      timer = setInterval(() => {
+        setTimeLeft((prev) => prev - 1)
+      }, 1000)
+    } else if (timeLeft === 0 && quizStarted && !quizCompleted) {
+      handleSubmitQuiz()
+    }
+
+    return () => clearInterval(timer)
+  }, [quizStarted, timeLeft, quizCompleted])
+
+  const handleStartQuiz = (quiz: Quiz) => {
+    try {
+      setSelectedQuiz(quiz)
+      setCurrentQuestion(0)
+      setAnswers({})
+      setTimeLeft(quiz.timeLimit)
+      setQuizStarted(true)
+      setQuizCompleted(false)
+      setActiveTab("quiz")
+      setError(undefined)
+    } catch (error) {
+      setError("Failed to start quiz. Please try again.")
+      console.error("Error starting quiz:", error)
+    }
+  }
+
+  const handleAnswerSelect = (questionId: string, answer: string) => {
+    setAnswers((prev) => ({
+      ...prev,
+      [questionId]: answer,
+    }))
+  }
+
+  const handleNextQuestion = () => {
+    if (!selectedQuiz) return
+    
+    if (currentQuestion < selectedQuiz.questions.length - 1) {
+      setCurrentQuestion((prev) => prev + 1)
+    } else {
+      handleSubmitQuiz()
+    }
+  }
+
+  const handleSubmitQuiz = async () => {
+    if (!user || !selectedQuiz) return
+
+    try {
+      // Calculate score
+      let correctAnswers = 0
+      const questionResults = selectedQuiz.questions.map((question) => {
+        const isCorrect = answers[question.id] === question.correctAnswer
+        if (isCorrect) correctAnswers++
+        return {
+          questionId: question.id,
+          selectedAnswer: answers[question.id] || "",
+          isCorrect,
+          timeSpent: selectedQuiz.timeLimit - timeLeft // Approximate time spent
+        }
+      })
+
+      const calculatedScore = Math.round((correctAnswers / selectedQuiz.questions.length) * 100)
+      setScore(calculatedScore)
+      setQuizCompleted(true)
+      setQuizStarted(false)
+      
+      // Create the quiz attempt object
+      const quizAttempt = {
+        user_id: user.id, // Changed from userId to user_id to match DB schema
+        quiz_id: selectedQuiz.id, // Changed from quizId to quiz_id to match DB schema
+        score: calculatedScore,
+        total_questions: selectedQuiz.questions.length,
+        completed_at: new Date().toISOString(),
+        time_spent: selectedQuiz.timeLimit - timeLeft,
+        answers: questionResults
+      }
+
+      console.log('Saving quiz result:', quizAttempt);
+      
+      try {
+        // Try to insert the quiz result
+        const { data, error: submitError } = await supabase
+        .from("quiz_results")
+        .insert([quizAttempt])
+          .select()
+
+      if (submitError) {
+          // If the table doesn't exist, store locally
+          if (submitError.code === '42P01') {
+            console.log('quiz_results table does not exist. Storing result locally.');
+            
+            // Store in localStorage
+            const localResults = JSON.parse(localStorage.getItem('quizResults') || '[]');
+            localResults.push({
+              ...quizAttempt,
+              id: crypto.randomUUID(),
+              created_at: new Date().toISOString()
+            });
+            localStorage.setItem('quizResults', JSON.stringify(localResults));
+            
+            console.log('Quiz result saved locally');
+          } else {
+            throw submitError;
+          }
+        } else {
+          console.log('Quiz result saved to database:', data);
+          
+          // Update user stats in the users table
+          try {
+            // First get current user stats
+            const { data: userData, error: userError } = await supabase
+              .from("users")
+              .select("quizzes_taken, avg_score, total_score")
+              .eq("id", user.id)
+              .single();
+              
+            if (!userError && userData) {
+              // Calculate new stats
+              const quizzesTaken = (userData.quizzes_taken || 0) + 1;
+              const totalScore = (userData.total_score || 0) + calculatedScore;
+              const avgScore = Math.round(totalScore / quizzesTaken);
+              
+              // Update user stats
+              await supabase
+                .from("users")
+                .update({
+                  quizzes_taken: quizzesTaken,
+                  avg_score: avgScore,
+                  total_score: totalScore,
+                  last_quiz_at: new Date().toISOString()
+                })
+                .eq("id", user.id);
+            }
+          } catch (statsError) {
+            console.error("Error updating user stats:", statsError);
+          }
+        }
+      } catch (dbError) {
+        console.error('Database error:', dbError);
+        
+        // Fallback to local storage
+        const localResults = JSON.parse(localStorage.getItem('quizResults') || '[]');
+        localResults.push({
+          ...quizAttempt,
+          id: crypto.randomUUID(),
+          created_at: new Date().toISOString()
+        });
+        localStorage.setItem('quizResults', JSON.stringify(localResults));
+        
+        console.log('Quiz result saved locally due to database error');
+      }
+      
+      // Refresh leaderboard data
+      fetchLeaderboard();
+      
+      // Refresh user progress
+      fetchUserProgress();
+      
+      setError(undefined);
+    } catch (error) {
+      console.error("Error saving quiz result:", error);
+      setError("Failed to submit quiz. Please try again.");
+    }
+  }
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60)
+    const secs = seconds % 60
+    return `${mins}:${secs < 10 ? "0" : ""}${secs}`
+  }
 
   // Function to fetch leaderboard data
-  const fetchLeaderboard = async () => {
-    try {
-      const { data: leaderboardData } = await supabase
-        .from("users")
-        .select("id, display_name, photo_url, avg_score, quizzes_taken")
-        .order("avg_score", { ascending: false })
-        .limit(5)
-      setLeaderboard(leaderboardData || [])
+    const fetchLeaderboard = async () => {
+      try {
+        const { data: leaderboardData } = await supabase
+          .from("users")
+          .select("id, display_name, photo_url, avg_score, quizzes_taken")
+          .order("avg_score", { ascending: false })
+          .limit(5)
+        setLeaderboard(leaderboardData || [])
       
       // If user is logged in, calculate their rank
       if (user) {
@@ -61,8 +334,8 @@ export default function QuizPage() {
           setUserStats(prev => ({ ...prev, rank: userRank > 0 ? userRank : 0 }))
         }
       }
-    } catch (error) {
-      console.error("Error fetching leaderboard:", error)
+      } catch (error) {
+        console.error("Error fetching leaderboard:", error)
     }
   }
   
@@ -151,214 +424,6 @@ export default function QuizPage() {
     }
   }
 
-  useEffect(() => {
-    const fetchQuizzes = async () => {
-      try {
-        // Try to fetch from Supabase first
-        const { data: quizzesData, error } = await supabase.from("quizzes").select("*")
-        
-        if (error || !quizzesData || quizzesData.length === 0) {
-          // If there's an error or no data, use seed data
-          console.log('Using seed quiz data for development')
-          setQuizzes(seedQuizzes)
-        } else {
-          setQuizzes(quizzesData)
-        }
-      } catch (error) {
-        console.error("Error fetching quizzes:", error)
-        // Fallback to seed data
-        setQuizzes(seedQuizzes)
-      }
-    }
-
-    Promise.all([fetchQuizzes(), fetchLeaderboard()]).finally(() => {
-      setIsLoading(false)
-    })
-  }, [])
-  
-  // Fetch user stats and progress when user changes
-  useEffect(() => {
-    if (user) {
-      fetchUserStats()
-      fetchUserProgress()
-    }
-  }, [user])
-
-  // Timer for quiz
-  useEffect(() => {
-    let timer: NodeJS.Timeout
-
-    if (quizStarted && selectedQuiz && timeLeft > 0) {
-      timer = setInterval(() => {
-        setTimeLeft((prev) => prev - 1)
-      }, 1000)
-    } else if (timeLeft === 0 && quizStarted && !quizCompleted) {
-      handleSubmitQuiz()
-    }
-
-    return () => clearInterval(timer)
-  }, [quizStarted, timeLeft, quizCompleted])
-
-  const handleStartQuiz = (quiz: Quiz) => {
-    try {
-      setSelectedQuiz(quiz)
-      setCurrentQuestion(0)
-      setAnswers({})
-      setTimeLeft(quiz.timeLimit)
-      setQuizStarted(true)
-      setQuizCompleted(false)
-      setActiveTab("quiz")
-      setError(undefined)
-    } catch (error) {
-      setError("Failed to start quiz. Please try again.")
-      console.error("Error starting quiz:", error)
-    }
-  }
-
-  const handleAnswerSelect = (questionId: string, answer: string) => {
-    setAnswers((prev) => ({
-      ...prev,
-      [questionId]: answer,
-    }))
-  }
-
-  const handleNextQuestion = () => {
-    if (!selectedQuiz) return
-    
-    if (currentQuestion < selectedQuiz.questions.length - 1) {
-      setCurrentQuestion((prev) => prev + 1)
-    } else {
-      handleSubmitQuiz()
-    }
-  }
-
-  const handleSubmitQuiz = async () => {
-    if (!user || !selectedQuiz) return
-
-    try {
-      // Calculate score
-      let correctAnswers = 0
-      const questionResults = selectedQuiz.questions.map((question) => {
-        const isCorrect = answers[question.id] === question.correctAnswer
-        if (isCorrect) correctAnswers++
-        return {
-          questionId: question.id,
-          selectedAnswer: answers[question.id] || "",
-          isCorrect,
-          timeSpent: selectedQuiz.timeLimit - timeLeft // Approximate time spent
-        }
-      })
-
-      const calculatedScore = Math.round((correctAnswers / selectedQuiz.questions.length) * 100)
-      setScore(calculatedScore)
-      setQuizCompleted(true)
-      setQuizStarted(false)
-      
-      // Create the quiz attempt object
-      const quizAttempt = {
-        user_id: user.id, // Changed from userId to user_id to match DB schema
-        quiz_id: selectedQuiz.id, // Changed from quizId to quiz_id to match DB schema
-        score: calculatedScore,
-        total_questions: selectedQuiz.questions.length,
-        completed_at: new Date().toISOString(),
-        time_spent: selectedQuiz.timeLimit - timeLeft,
-        answers: questionResults
-      }
-
-      console.log('Saving quiz result:', quizAttempt);
-      
-      try {
-        // Try to insert the quiz result
-        const { data, error: submitError } = await supabase
-          .from("quiz_results")
-          .insert([quizAttempt])
-          .select()
-
-        if (submitError) {
-          // If the table doesn't exist, store locally
-          if (submitError.code === '42P01') {
-            console.log('quiz_results table does not exist. Storing result locally.');
-            
-            // Store in localStorage
-            const localResults = JSON.parse(localStorage.getItem('quizResults') || '[]');
-            localResults.push({
-              ...quizAttempt,
-              id: crypto.randomUUID(),
-              created_at: new Date().toISOString()
-            });
-            localStorage.setItem('quizResults', JSON.stringify(localResults));
-            
-            console.log('Quiz result saved locally');
-          } else {
-            throw submitError;
-          }
-        } else {
-          console.log('Quiz result saved to database:', data);
-          
-          // Update user stats in the users table
-          try {
-            // First get current user stats
-            const { data: userData, error: userError } = await supabase
-              .from("users")
-              .select("quizzes_taken, avg_score, total_score")
-              .eq("id", user.id)
-              .single();
-              
-            if (!userError && userData) {
-              // Calculate new stats
-              const quizzesTaken = (userData.quizzes_taken || 0) + 1;
-              const totalScore = (userData.total_score || 0) + calculatedScore;
-              const avgScore = Math.round(totalScore / quizzesTaken);
-              
-              // Update user stats
-              await supabase
-                .from("users")
-                .update({
-                  quizzes_taken: quizzesTaken,
-                  avg_score: avgScore,
-                  total_score: totalScore,
-                  last_quiz_at: new Date().toISOString()
-                })
-                .eq("id", user.id);
-            }
-          } catch (statsError) {
-            console.error("Error updating user stats:", statsError);
-          }
-        }
-      } catch (dbError) {
-        console.error('Database error:', dbError);
-        
-        // Fallback to local storage
-        const localResults = JSON.parse(localStorage.getItem('quizResults') || '[]');
-        localResults.push({
-          ...quizAttempt,
-          id: crypto.randomUUID(),
-          created_at: new Date().toISOString()
-        });
-        localStorage.setItem('quizResults', JSON.stringify(localResults));
-        
-        console.log('Quiz result saved locally due to database error');
-      }
-      
-      // Refresh leaderboard data
-      fetchLeaderboard();
-      
-      // Refresh user progress
-      fetchUserProgress();
-      
-      setError(undefined);
-    } catch (error) {
-      console.error("Error saving quiz result:", error);
-      setError("Failed to submit quiz. Please try again.");
-    }
-  }
-
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60)
-    const secs = seconds % 60
-    return `${mins}:${secs < 10 ? "0" : ""}${secs}`
-  }
-
   if (loading || isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#0f172a]">
@@ -392,19 +457,28 @@ export default function QuizPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={logout}
+                  onClick={handleLogout}
+                  disabled={isLoggingOut}
                   className="border-indigo-500/50 text-white hover:bg-indigo-950/50"
                 >
-                  Sign Out
+                  {isLoggingOut ? (
+                    <span className="flex items-center">
+                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Signing Out
+                    </span>
+                  ) : "Sign Out"}
                 </Button>
               </div>
             ) : (
               <Button
-                onClick={signInWithGoogle}
+                onClick={() => setIsAuthPopupOpen(true)}
                 className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white"
               >
                 <LogIn className="mr-2 h-4 w-4" />
-                Sign In with Google
+                Sign In / Sign Up
               </Button>
             )}
           </div>
@@ -432,13 +506,30 @@ export default function QuizPage() {
                 Our quiz platform offers personalized tracking, leaderboards, and progress analytics. Sign in to get
                 started!
               </p>
-              <Button
-                onClick={signInWithGoogle}
-                className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white"
-              >
-                <LogIn className="mr-2 h-4 w-4" />
-                Sign In with Google
-              </Button>
+              <div className="space-y-3">
+                <Button
+                  onClick={() => setIsAuthPopupOpen(true)}
+                  className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white"
+                >
+                  <LogIn className="mr-2 h-4 w-4" />
+                  Sign In / Sign Up
+                </Button>
+                <Button
+                  onClick={() => setIsAuthPopupOpen(true)}
+                  variant="outline"
+                  className="w-full border-indigo-900/50 text-white hover:bg-indigo-900/30"
+                >
+                  <svg className="mr-2 h-4 w-4" viewBox="0 0 24 24" width="24" height="24" xmlns="http://www.w3.org/2000/svg">
+                    <g transform="matrix(1, 0, 0, 1, 27.009001, -39.238998)">
+                      <path fill="#4285F4" d="M -3.264 51.509 C -3.264 50.719 -3.334 49.969 -3.454 49.239 L -14.754 49.239 L -14.754 53.749 L -8.284 53.749 C -8.574 55.229 -9.424 56.479 -10.684 57.329 L -10.684 60.329 L -6.824 60.329 C -4.564 58.239 -3.264 55.159 -3.264 51.509 Z"/>
+                      <path fill="#34A853" d="M -14.754 63.239 C -11.514 63.239 -8.804 62.159 -6.824 60.329 L -10.684 57.329 C -11.764 58.049 -13.134 58.489 -14.754 58.489 C -17.884 58.489 -20.534 56.379 -21.484 53.529 L -25.464 53.529 L -25.464 56.619 C -23.494 60.539 -19.444 63.239 -14.754 63.239 Z"/>
+                      <path fill="#FBBC05" d="M -21.484 53.529 C -21.734 52.809 -21.864 52.039 -21.864 51.239 C -21.864 50.439 -21.724 49.669 -21.484 48.949 L -21.484 45.859 L -25.464 45.859 C -26.284 47.479 -26.754 49.299 -26.754 51.239 C -26.754 53.179 -26.284 54.999 -25.464 56.619 L -21.484 53.529 Z"/>
+                      <path fill="#EA4335" d="M -14.754 43.989 C -12.984 43.989 -11.404 44.599 -10.154 45.789 L -6.734 42.369 C -8.804 40.429 -11.514 39.239 -14.754 39.239 C -19.444 39.239 -23.494 41.939 -25.464 45.859 L -21.484 48.949 C -20.534 46.099 -17.884 43.989 -14.754 43.989 Z"/>
+                    </g>
+                  </svg>
+                  Sign in with Google
+                </Button>
+              </div>
             </CardContent>
           </Card>
         ) : (
@@ -505,7 +596,7 @@ export default function QuizPage() {
                   <Card className="bg-gradient-to-br from-[#1a2234] to-[#131c31] border-indigo-900/20 text-white">
                     <CardHeader>
                       <div className="flex justify-between items-center">
-                        <CardTitle>Your Progress</CardTitle>
+                      <CardTitle>Your Progress</CardTitle>
                         <Button 
                           variant="ghost" 
                           size="sm" 
@@ -526,23 +617,23 @@ export default function QuizPage() {
                         {userProgress.length > 0 ? (
                           userProgress.map((progress, index) => (
                             <div key={index}>
-                              <div className="flex justify-between items-center">
+                        <div className="flex justify-between items-center">
                                 <span className="text-white/70">{progress.title}</span>
                                 <span className="text-white">{progress.score}%</span>
-                              </div>
+                        </div>
                               <Progress value={progress.score} className="h-2 bg-gray-800">
-                                <div
-                                  className="h-full bg-gradient-to-r from-indigo-600 to-purple-600 rounded-full"
+                          <div
+                            className="h-full bg-gradient-to-r from-indigo-600 to-purple-600 rounded-full"
                                   style={{ width: `${progress.score}%` }}
-                                ></div>
-                              </Progress>
-                            </div>
+                          ></div>
+                        </Progress>
+                        </div>
                           ))
                         ) : (
                           <div className="text-center py-6">
                             <p className="text-white/70">No progress data available yet.</p>
                             <p className="text-white/50 text-sm mt-1">Complete quizzes to see your progress!</p>
-                          </div>
+                        </div>
                         )}
                       </div>
                     </CardContent>
@@ -553,10 +644,10 @@ export default function QuizPage() {
                   <Card className="bg-gradient-to-br from-[#1a2234] to-[#131c31] border-indigo-900/20 text-white">
                     <CardHeader>
                       <div className="flex justify-between items-center">
-                        <CardTitle className="flex items-center">
-                          <Trophy className="mr-2 h-5 w-5 text-yellow-400" />
-                          Leaderboard
-                        </CardTitle>
+                      <CardTitle className="flex items-center">
+                        <Trophy className="mr-2 h-5 w-5 text-yellow-400" />
+                        Leaderboard
+                      </CardTitle>
                         <Button 
                           variant="ghost" 
                           size="sm" 
@@ -574,8 +665,8 @@ export default function QuizPage() {
                     </CardHeader>
                     <CardContent>
                       {leaderboard.length > 0 ? (
-                        <div className="space-y-4">
-                          {leaderboard.map((user, index) => (
+                      <div className="space-y-4">
+                        {leaderboard.map((user, index) => (
                             <div key={user.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-[#131c31]/50 transition-colors">
                               <div className="flex-shrink-0 w-6 text-center font-bold text-white/70">
                                 {index === 0 ? (
@@ -589,19 +680,19 @@ export default function QuizPage() {
                                 )}
                               </div>
                               <Avatar className="flex-shrink-0 border-2 border-indigo-500/30">
-                                <AvatarImage src={user.photo_url} alt={user.display_name} />
+                              <AvatarImage src={user.photo_url} alt={user.display_name} />
                                 <AvatarFallback>{user.display_name?.charAt(0) || "U"}</AvatarFallback>
-                              </Avatar>
-                              <div className="flex-grow min-w-0">
+                            </Avatar>
+                            <div className="flex-grow min-w-0">
                                 <p className="text-white truncate font-medium">{user.display_name}</p>
                                 <p className="text-white/70 text-sm">{user.quizzes_taken || 0} quizzes</p>
-                              </div>
+                            </div>
                               <div className="flex-shrink-0 font-bold text-indigo-400 bg-indigo-900/30 px-2 py-1 rounded-md">
                                 {user.avg_score || 0}%
                               </div>
-                            </div>
-                          ))}
-                        </div>
+                          </div>
+                        ))}
+                      </div>
                       ) : (
                         <div className="text-center py-6">
                           <p className="text-white/70">No leaderboard data available yet.</p>
@@ -810,6 +901,37 @@ export default function QuizPage() {
           </>
         )}
       </main>
+
+      {/* Debug section */}
+      {error && (
+        <div className="fixed bottom-4 right-4 bg-red-900/80 text-white px-4 py-3 rounded-lg shadow-lg max-w-md">
+          <p className="font-medium">Error</p>
+          <p className="text-sm text-white/80">{error}</p>
+        </div>
+      )}
+      
+      {/* Emergency logout button */}
+      <div className="fixed bottom-4 left-4">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            // Clear all auth data and reload
+            localStorage.clear();
+            window.location.href = '/quiz';
+          }}
+          className="bg-red-900/30 border-red-500/50 text-white hover:bg-red-900/50"
+        >
+          Emergency Reset
+        </Button>
+      </div>
+
+      {/* Auth Popup */}
+      <AuthPopup 
+        isOpen={isAuthPopupOpen} 
+        onClose={() => setIsAuthPopupOpen(false)} 
+        onAuthSuccess={handleAuthSuccess}
+      />
     </div>
   )
 }

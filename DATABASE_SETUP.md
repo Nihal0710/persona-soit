@@ -47,6 +47,25 @@ This will:
 - Set up a trigger to automatically create user records when someone signs up
 - Enable the leaderboard functionality
 
+## Setting up Authentication Options
+
+The application now supports multiple authentication methods:
+
+1. **Email/Password Authentication**:
+   - Users can sign up with their name, email, password, and phone number
+   - This information is stored in the Supabase Auth system and synced to the users table
+
+2. **Google Authentication**:
+   - Users can continue to sign in with their Google account
+   - This provides a seamless experience for users who prefer social login
+
+To enable Email/Password authentication:
+
+1. Go to your [Supabase Dashboard](https://app.supabase.io/)
+2. Navigate to "Authentication" > "Providers"
+3. Ensure "Email" provider is enabled
+4. Configure your email templates for confirmation emails
+
 ## Setting up Row Level Security (RLS)
 
 After creating the tables, you need to set up RLS policies (these are included in the SQL scripts):
@@ -76,9 +95,11 @@ Note that the variable name must be `NEXT_PUBLIC_SUPABASE_ANON_KEY` (not `NEXT_P
 ## Verifying the Setup
 
 After setting up the database, you should be able to:
-1. Submit quiz results without errors
-2. See your results on the leaderboard
-3. Track your progress across multiple quizzes
+1. Sign up with email and password
+2. Sign in with Google
+3. Submit quiz results without errors
+4. See your results on the leaderboard
+5. Track your progress across multiple quizzes
 
 The application has been updated to store results locally if the database table doesn't exist, but it's better to have the proper database setup for full functionality.
 
