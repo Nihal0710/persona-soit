@@ -13,21 +13,23 @@ import { Separator } from "@/components/ui/separator"
 import { BarChart, Clock, Trophy, CheckCircle2, XCircle, ArrowRight, LogIn, Home } from "lucide-react"
 import { useAuth } from "@/contexts/auth-context"
 import { supabase } from "@/lib/supabase"
+import { Quiz, Question, QuizAttempt } from "@/types/quiz"
 
 export default function QuizPage() {
   const router = useRouter()
   const { user, loading, signInWithGoogle, logout } = useAuth()
   const [activeTab, setActiveTab] = useState("dashboard")
-  const [selectedQuiz, setSelectedQuiz] = useState<any>(null)
+  const [selectedQuiz, setSelectedQuiz] = useState<Quiz | null>(null)
   const [currentQuestion, setCurrentQuestion] = useState(0)
-  const [answers, setAnswers] = useState<any>({})
+  const [answers, setAnswers] = useState<Record<string, string>>({})
   const [timeLeft, setTimeLeft] = useState(0)
   const [quizCompleted, setQuizCompleted] = useState(false)
   const [score, setScore] = useState(0)
   const [quizStarted, setQuizStarted] = useState(false)
-  const [quizzes, setQuizzes] = useState([])
-  const [leaderboard, setLeaderboard] = useState([])
+  const [quizzes, setQuizzes] = useState<Quiz[]>([])
+  const [leaderboard, setLeaderboard] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | undefined>(undefined)
 
   useEffect(() => {
     const fetchQuizzes = async () => {
@@ -72,24 +74,32 @@ export default function QuizPage() {
     return () => clearInterval(timer)
   }, [quizStarted, timeLeft, quizCompleted])
 
-  const handleStartQuiz = (quiz: any) => {
-    setSelectedQuiz(quiz)
-    setCurrentQuestion(0)
-    setAnswers({})
-    setTimeLeft(quiz.timeLimit)
-    setQuizStarted(true)
-    setQuizCompleted(false)
-    setActiveTab("quiz")
+  const handleStartQuiz = (quiz: Quiz) => {
+    try {
+      setSelectedQuiz(quiz)
+      setCurrentQuestion(0)
+      setAnswers({})
+      setTimeLeft(quiz.timeLimit)
+      setQuizStarted(true)
+      setQuizCompleted(false)
+      setActiveTab("quiz")
+      setError(undefined)
+    } catch (error) {
+      setError("Failed to start quiz. Please try again.")
+      console.error("Error starting quiz:", error)
+    }
   }
 
-  const handleAnswerSelect = (questionId: number, answer: string) => {
-    setAnswers((prev: any) => ({
+  const handleAnswerSelect = (questionId: string, answer: string) => {
+    setAnswers((prev) => ({
       ...prev,
       [questionId]: answer,
     }))
   }
 
   const handleNextQuestion = () => {
+    if (!selectedQuiz) return
+    
     if (currentQuestion < selectedQuiz.questions.length - 1) {
       setCurrentQuestion((prev) => prev + 1)
     } else {
@@ -100,30 +110,45 @@ export default function QuizPage() {
   const handleSubmitQuiz = async () => {
     if (!user || !selectedQuiz) return
 
-    // Calculate score
-    let correctAnswers = 0
-    selectedQuiz.questions.forEach((question: any) => {
-      if (answers[question.id] === question.correctAnswer) {
-        correctAnswers++
-      }
-    })
-
-    const calculatedScore = Math.round((correctAnswers / selectedQuiz.questions.length) * 100)
-    setScore(calculatedScore)
-    setQuizCompleted(true)
-    setQuizStarted(false)
-
     try {
-      await supabase.from("quiz_results").insert([
-        {
-          user_id: user.uid,
-          quiz_id: selectedQuiz.id,
-          score: calculatedScore,
-          answers,
-          completed_at: new Date().toISOString(),
-        },
-      ])
+      // Calculate score
+      let correctAnswers = 0
+      const questionResults = selectedQuiz.questions.map((question) => {
+        const isCorrect = answers[question.id] === question.correctAnswer
+        if (isCorrect) correctAnswers++
+        return {
+          questionId: question.id,
+          selectedAnswer: answers[question.id] || "",
+          isCorrect,
+          timeSpent: selectedQuiz.timeLimit - timeLeft // Approximate time spent
+        }
+      })
+
+      const calculatedScore = Math.round((correctAnswers / selectedQuiz.questions.length) * 100)
+      setScore(calculatedScore)
+      setQuizCompleted(true)
+      setQuizStarted(false)
+      setError(undefined)
+
+      const quizAttempt: Partial<QuizAttempt> = {
+        quizId: selectedQuiz.id,
+        userId: user.uid,
+        score: calculatedScore,
+        totalQuestions: selectedQuiz.questions.length,
+        completedAt: new Date().toISOString(),
+        timeSpent: selectedQuiz.timeLimit - timeLeft,
+        answers: questionResults
+      }
+
+      const { error: submitError } = await supabase
+        .from("quiz_results")
+        .insert([quizAttempt])
+
+      if (submitError) {
+        throw submitError
+      }
     } catch (error) {
+      setError("Failed to submit quiz. Please try again.")
       console.error("Error saving quiz result:", error)
     }
   }
@@ -160,7 +185,7 @@ export default function QuizPage() {
             {user ? (
               <div className="flex items-center gap-4">
                 <Avatar>
-                  <AvatarImage src={user.photoURL} alt={user.displayName} />
+                  <AvatarImage src={user.photoURL || undefined} alt={user.displayName || undefined} />
                   <AvatarFallback>{user.displayName?.charAt(0) || "U"}</AvatarFallback>
                 </Avatar>
                 <span className="text-white hidden md:inline">{user.displayName}</span>
@@ -237,15 +262,15 @@ export default function QuizPage() {
                                   <Badge
                                     className={`
                                     ${
-                                      quiz.difficulty === "Beginner"
+                                      quiz.difficulty === "easy"
                                         ? "bg-green-900/30 text-green-300"
-                                        : quiz.difficulty === "Intermediate"
+                                        : quiz.difficulty === "medium"
                                           ? "bg-yellow-900/30 text-yellow-300"
                                           : "bg-red-900/30 text-red-300"
                                     }
                                   `}
                                   >
-                                    {quiz.difficulty}
+                                    {quiz.difficulty.charAt(0).toUpperCase() + quiz.difficulty.slice(1)}
                                   </Badge>
                                 </div>
                                 <CardDescription className="text-white/70">{quiz.description}</CardDescription>

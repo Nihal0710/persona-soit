@@ -11,12 +11,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from "@/components/ui/carousel"
 import { Badge } from "@/components/ui/badge"
 import LoadingScreen from "@/components/loading-screen"
-import { ChevronRight, ArrowRight } from "lucide-react"
+import { ChevronRight, ArrowRight, Menu, X } from "lucide-react"
 import ContactForm from "@/components/contact-form"
 import NewsletterForm from "@/components/newsletter-form"
 
 export default function Home() {
   const [isLoading, setIsLoading] = useState(true)
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -44,9 +45,25 @@ export default function Home() {
               className="rounded-full"
             />
             <span className="text-xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-indigo-400 text-transparent bg-clip-text">
-              The Personality Grooming Club
+              <span className="md:hidden">The Persona</span>
+              <span className="hidden md:inline">The Personality Grooming Club</span>
             </span>
           </div>
+
+          {/* Mobile Menu Button */}
+          <button
+            className="md:hidden text-white p-2 hover:bg-indigo-900/20 rounded-md transition-colors"
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            aria-label="Toggle menu"
+          >
+            {isMobileMenuOpen ? (
+              <X className="h-6 w-6" />
+            ) : (
+              <Menu className="h-6 w-6" />
+            )}
+          </button>
+
+          {/* Desktop Navigation */}
           <nav className="hidden md:flex items-center gap-6">
             <Link href="/" className="text-sm font-medium text-white/80 transition-colors hover:text-white">
               Home
@@ -64,15 +81,68 @@ export default function Home() {
               Contact
             </Link>
           </nav>
-          <Button className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-md">
+
+          {/* Desktop Join Button */}
+          <Button className="hidden md:flex bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-md">
             Join Now
           </Button>
+
+          {/* Mobile Navigation Menu */}
+          {isMobileMenuOpen && (
+            <motion.div
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="absolute top-full left-0 right-0 bg-[#0f172a]/95 border-b border-indigo-900/20 py-4 backdrop-blur"
+            >
+              <nav className="container flex flex-col gap-4">
+                <Link
+                  href="/"
+                  className="text-sm font-medium text-white/80 transition-colors hover:text-white hover:bg-indigo-900/20 px-4 py-2 rounded-md"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                >
+                  Home
+                </Link>
+                <Link
+                  href="#events"
+                  className="text-sm font-medium text-white/80 transition-colors hover:text-white hover:bg-indigo-900/20 px-4 py-2 rounded-md"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                >
+                  Event
+                </Link>
+                <Link
+                  href="#"
+                  className="text-sm font-medium text-white/80 transition-colors hover:text-white hover:bg-indigo-900/20 px-4 py-2 rounded-md"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                >
+                  Gallery
+                </Link>
+                <Link
+                  href="/quiz"
+                  className="text-sm font-medium text-white/80 transition-colors hover:text-white hover:bg-indigo-900/20 px-4 py-2 rounded-md"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                >
+                  Quiz
+                </Link>
+                <Link
+                  href="#contact"
+                  className="text-sm font-medium text-white/80 transition-colors hover:text-white hover:bg-indigo-900/20 px-4 py-2 rounded-md"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                >
+                  Contact
+                </Link>
+                <Button className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-md mx-4">
+                  Join Now
+                </Button>
+              </nav>
+            </motion.div>
+          )}
         </div>
       </header>
 
       <main className="flex-1">
         {/* Hero Section */}
-        <section className="relative overflow-hidden py-20 md:py-32">
+        <section className="relative overflow-hidden py-12 md:py-32">
           <div className="absolute inset-0 z-0">
             <div className="absolute inset-0 bg-[#0f172a] opacity-90"></div>
             <div className="absolute inset-0 bg-gradient-to-r from-blue-900/20 to-purple-900/20"></div>
@@ -85,12 +155,12 @@ export default function Home() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8 }}
-              className="space-y-6"
+              className="space-y-6 text-center md:text-left"
             >
               <Badge className="px-3 py-1 bg-indigo-900/30 text-indigo-300 hover:bg-indigo-900/40 transition-colors">
                 Welcome to Persona
               </Badge>
-              <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight text-white">
+              <h1 className="text-3xl md:text-5xl lg:text-6xl font-bold tracking-tight text-white">
                 <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
                   Unlock Your{" "}
                 </motion.span>
@@ -115,16 +185,16 @@ export default function Home() {
                   </motion.span>
                 </motion.div>
               </h1>
-              <p className="text-lg text-white/70">
+              <p className="text-base md:text-lg text-white/70">
                 At Persona Club, We Believe In The Power Of Individuality And The Art Of Personal Growth. Our Mission Is
                 To Help You Unlock Your True Potential, Refine Your Skills, And Present The Best Version Of Yourself To
                 The World.
               </p>
-              <div className="flex flex-wrap gap-4">
-                <Button className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-md">
+              <div className="flex flex-wrap gap-4 justify-center md:justify-start">
+                <Button className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-md w-full md:w-auto">
                   Join Our Community
                 </Button>
-                <Button variant="outline" className="border-indigo-500/50 text-white hover:bg-indigo-950/50">
+                <Button variant="outline" className="border-indigo-500/50 text-white hover:bg-indigo-950/50 w-full md:w-auto">
                   Persona Magazine
                 </Button>
               </div>
@@ -263,144 +333,207 @@ export default function Home() {
             </div>
 
             <Tabs defaultValue="finance" className="w-full">
-              <TabsList className="grid w-full max-w-2xl mx-auto grid-cols-2 md:grid-cols-4 bg-[#1a2234] mb-8">
-                <TabsTrigger value="finance" className="data-[state=active]:bg-indigo-900/50">
-                  Finance
-                </TabsTrigger>
-                <TabsTrigger value="corporate" className="data-[state=active]:bg-indigo-900/50">
-                  Corporate
-                </TabsTrigger>
-                <TabsTrigger value="leadership" className="data-[state=active]:bg-indigo-900/50">
-                  Leadership
-                </TabsTrigger>
-                <TabsTrigger value="creative" className="data-[state=active]:bg-indigo-900/50">
-                  Creative
-                </TabsTrigger>
-              </TabsList>
+              <div className="relative">
+                <TabsList className="grid w-full max-w-2xl mx-auto grid-cols-2 md:grid-cols-4 bg-[#1a2234] mb-8 overflow-x-auto relative">
+                  <TabsTrigger 
+                    value="finance" 
+                    className="data-[state=active]:bg-indigo-900/50 min-w-[120px] relative z-10 transition-all duration-300"
+                  >
+                    Finance
+                  </TabsTrigger>
+                  <TabsTrigger 
+                    value="corporate" 
+                    className="data-[state=active]:bg-indigo-900/50 min-w-[120px] relative z-10 transition-all duration-300"
+                  >
+                    Corporate
+                  </TabsTrigger>
+                  <TabsTrigger 
+                    value="leadership" 
+                    className="data-[state=active]:bg-indigo-900/50 min-w-[120px] relative z-10 transition-all duration-300"
+                  >
+                    Leadership
+                  </TabsTrigger>
+                  <TabsTrigger 
+                    value="creative" 
+                    className="data-[state=active]:bg-indigo-900/50 min-w-[120px] relative z-10 transition-all duration-300"
+                  >
+                    Creative
+                  </TabsTrigger>
+                </TabsList>
+              </div>
 
-              <TabsContent value="finance">
-                <Card className="bg-gradient-to-br from-[#1a2234] to-[#131c31] border-indigo-900/20 text-white overflow-hidden">
-                  <CardContent className="p-6 md:p-8 flex flex-col md:flex-row gap-6 items-center">
-                    <div className="relative flex-shrink-0">
-                      <div className="absolute -inset-1 rounded-lg bg-gradient-to-r from-blue-500 to-purple-600 opacity-50 blur"></div>
-                      <Image
-                        src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/CorporateGrooming%20Intro.ai%20%284%29-6niu0nzS3dWLcBPClTfPysJXf8XOeM.png"
-                        alt="Finance And Management"
-                        width={300}
-                        height={300}
-                        className="rounded-lg relative"
-                      />
-                    </div>
-                    <div>
-                      <h3 className="text-2xl font-bold mb-3 bg-gradient-to-r from-blue-400 to-purple-400 text-transparent bg-clip-text">
-                        Finance And Management Community
-                      </h3>
-                      <p className="text-white/70 mb-4">
-                        Our Finance and Management community brings together professionals and enthusiasts to share
-                        knowledge, discuss market trends, and develop financial literacy. Members benefit from
-                        workshops, guest speakers, and networking opportunities that enhance their understanding of
-                        financial management principles.
-                      </p>
-                      <Button className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-md">
-                        Join Community
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
+              <motion.div
+                initial={false}
+                className="relative"
+              >
+                <TabsContent 
+                  value="finance"
+                  className="absolute w-full"
+                  asChild
+                >
+                  <motion.div
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: 20 }}
+                    transition={{ duration: 0.3 }}
+                  >
+                    <Card className="bg-gradient-to-br from-[#1a2234] to-[#131c31] border-indigo-900/20 text-white overflow-hidden">
+                      <CardContent className="p-6 md:p-8 flex flex-col md:flex-row gap-6 items-center">
+                        <div className="relative flex-shrink-0">
+                          <div className="absolute -inset-1 rounded-lg bg-gradient-to-r from-blue-500 to-purple-600 opacity-50 blur"></div>
+                          <Image
+                            src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/CorporateGrooming%20Intro.ai%20%284%29-6niu0nzS3dWLcBPClTfPysJXf8XOeM.png"
+                            alt="Finance And Management"
+                            width={300}
+                            height={300}
+                            className="rounded-lg relative"
+                          />
+                        </div>
+                        <div>
+                          <h3 className="text-2xl font-bold mb-3 bg-gradient-to-r from-blue-400 to-purple-400 text-transparent bg-clip-text">
+                            Finance And Management Community
+                          </h3>
+                          <p className="text-white/70 mb-4">
+                            Our Finance and Management community brings together professionals and enthusiasts to share
+                            knowledge, discuss market trends, and develop financial literacy. Members benefit from
+                            workshops, guest speakers, and networking opportunities that enhance their understanding of
+                            financial management principles.
+                          </p>
+                          <Button className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-md">
+                            Join Community
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                </TabsContent>
 
-              <TabsContent value="corporate">
-                <Card className="bg-gradient-to-br from-[#1a2234] to-[#131c31] border-indigo-900/20 text-white overflow-hidden">
-                  <CardContent className="p-6 md:p-8 flex flex-col md:flex-row gap-6 items-center">
-                    <div className="relative flex-shrink-0">
-                      <div className="absolute -inset-1 rounded-lg bg-gradient-to-r from-blue-500 to-purple-600 opacity-50 blur"></div>
-                      <Image
-                        src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/CorporateGrooming%20Intro.ai%20%284%29-6niu0nzS3dWLcBPClTfPysJXf8XOeM.png"
-                        alt="Corporate Grooming"
-                        width={300}
-                        height={300}
-                        className="rounded-lg relative"
-                      />
-                    </div>
-                    <div>
-                      <h3 className="text-2xl font-bold mb-3 bg-gradient-to-r from-blue-400 to-purple-400 text-transparent bg-clip-text">
-                        Corporate Grooming Community
-                      </h3>
-                      <p className="text-white/70 mb-4">
-                        The Corporate Grooming community focuses on professional etiquette, communication skills, and
-                        personal branding. Through interactive sessions and practical exercises, members learn to
-                        navigate corporate environments with confidence and polish, enhancing their career prospects and
-                        professional relationships.
-                      </p>
-                      <Button className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-md">
-                        Join Community
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
+                <TabsContent 
+                  value="corporate"
+                  className="absolute w-full"
+                  asChild
+                >
+                  <motion.div
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: 20 }}
+                    transition={{ duration: 0.3 }}
+                  >
+                    <Card className="bg-gradient-to-br from-[#1a2234] to-[#131c31] border-indigo-900/20 text-white overflow-hidden">
+                      <CardContent className="p-6 md:p-8 flex flex-col md:flex-row gap-6 items-center">
+                        <div className="relative flex-shrink-0">
+                          <div className="absolute -inset-1 rounded-lg bg-gradient-to-r from-blue-500 to-purple-600 opacity-50 blur"></div>
+                          <Image
+                            src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/CorporateGrooming%20Intro.ai%20%284%29-6niu0nzS3dWLcBPClTfPysJXf8XOeM.png"
+                            alt="Corporate Grooming"
+                            width={300}
+                            height={300}
+                            className="rounded-lg relative"
+                          />
+                        </div>
+                        <div>
+                          <h3 className="text-2xl font-bold mb-3 bg-gradient-to-r from-blue-400 to-purple-400 text-transparent bg-clip-text">
+                            Corporate Grooming Community
+                          </h3>
+                          <p className="text-white/70 mb-4">
+                            The Corporate Grooming community focuses on professional etiquette, communication skills, and
+                            personal branding. Through interactive sessions and practical exercises, members learn to
+                            navigate corporate environments with confidence and polish, enhancing their career prospects and
+                            professional relationships.
+                          </p>
+                          <Button className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-md">
+                            Join Community
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                </TabsContent>
 
-              <TabsContent value="leadership">
-                <Card className="bg-gradient-to-br from-[#1a2234] to-[#131c31] border-indigo-900/20 text-white overflow-hidden">
-                  <CardContent className="p-6 md:p-8 flex flex-col md:flex-row gap-6 items-center">
-                    <div className="relative flex-shrink-0">
-                      <div className="absolute -inset-1 rounded-lg bg-gradient-to-r from-blue-500 to-purple-600 opacity-50 blur"></div>
-                      <Image
-                        src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/CorporateGrooming%20Intro.ai%20%284%29-6niu0nzS3dWLcBPClTfPysJXf8XOeM.png"
-                        alt="Leadership Development"
-                        width={300}
-                        height={300}
-                        className="rounded-lg relative"
-                      />
-                    </div>
-                    <div>
-                      <h3 className="text-2xl font-bold mb-3 bg-gradient-to-r from-blue-400 to-purple-400 text-transparent bg-clip-text">
-                        Leadership Development Community
-                      </h3>
-                      <p className="text-white/70 mb-4">
-                        Our Leadership Development community cultivates essential leadership skills through mentorship,
-                        case studies, and collaborative projects. Members explore different leadership styles, conflict
-                        resolution, and team management techniques that prepare them for leadership roles in various
-                        contexts.
-                      </p>
-                      <Button className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-md">
-                        Join Community
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
+                <TabsContent 
+                  value="leadership"
+                  className="absolute w-full"
+                  asChild
+                >
+                  <motion.div
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: 20 }}
+                    transition={{ duration: 0.3 }}
+                  >
+                    <Card className="bg-gradient-to-br from-[#1a2234] to-[#131c31] border-indigo-900/20 text-white overflow-hidden">
+                      <CardContent className="p-6 md:p-8 flex flex-col md:flex-row gap-6 items-center">
+                        <div className="relative flex-shrink-0">
+                          <div className="absolute -inset-1 rounded-lg bg-gradient-to-r from-blue-500 to-purple-600 opacity-50 blur"></div>
+                          <Image
+                            src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/CorporateGrooming%20Intro.ai%20%284%29-6niu0nzS3dWLcBPClTfPysJXf8XOeM.png"
+                            alt="Leadership Development"
+                            width={300}
+                            height={300}
+                            className="rounded-lg relative"
+                          />
+                        </div>
+                        <div>
+                          <h3 className="text-2xl font-bold mb-3 bg-gradient-to-r from-blue-400 to-purple-400 text-transparent bg-clip-text">
+                            Leadership Development Community
+                          </h3>
+                          <p className="text-white/70 mb-4">
+                            Our Leadership Development community cultivates essential leadership skills through mentorship,
+                            case studies, and collaborative projects. Members explore different leadership styles, conflict
+                            resolution, and team management techniques that prepare them for leadership roles in various
+                            contexts.
+                          </p>
+                          <Button className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-md">
+                            Join Community
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                </TabsContent>
 
-              <TabsContent value="creative">
-                <Card className="bg-gradient-to-br from-[#1a2234] to-[#131c31] border-indigo-900/20 text-white overflow-hidden">
-                  <CardContent className="p-6 md:p-8 flex flex-col md:flex-row gap-6 items-center">
-                    <div className="relative flex-shrink-0">
-                      <div className="absolute -inset-1 rounded-lg bg-gradient-to-r from-blue-500 to-purple-600 opacity-50 blur"></div>
-                      <Image
-                        src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/CorporateGrooming%20Intro.ai%20%284%29-6niu0nzS3dWLcBPClTfPysJXf8XOeM.png"
-                        alt="Creative Arts"
-                        width={300}
-                        height={300}
-                        className="rounded-lg relative"
-                      />
-                    </div>
-                    <div>
-                      <h3 className="text-2xl font-bold mb-3 bg-gradient-to-r from-blue-400 to-purple-400 text-transparent bg-clip-text">
-                        Creative Arts Community
-                      </h3>
-                      <p className="text-white/70 mb-4">
-                        The Creative Arts community provides a platform for artistic expression and collaboration.
-                        Members share their creative works, receive constructive feedback, and participate in workshops
-                        that enhance their artistic skills. This community celebrates diversity in creative expression
-                        and encourages innovative thinking.
-                      </p>
-                      <Button className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-md">
-                        Join Community
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
+                <TabsContent 
+                  value="creative"
+                  className="absolute w-full"
+                  asChild
+                >
+                  <motion.div
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: 20 }}
+                    transition={{ duration: 0.3 }}
+                  >
+                    <Card className="bg-gradient-to-br from-[#1a2234] to-[#131c31] border-indigo-900/20 text-white overflow-hidden">
+                      <CardContent className="p-6 md:p-8 flex flex-col md:flex-row gap-6 items-center">
+                        <div className="relative flex-shrink-0">
+                          <div className="absolute -inset-1 rounded-lg bg-gradient-to-r from-blue-500 to-purple-600 opacity-50 blur"></div>
+                          <Image
+                            src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/CorporateGrooming%20Intro.ai%20%284%29-6niu0nzS3dWLcBPClTfPysJXf8XOeM.png"
+                            alt="Creative Arts"
+                            width={300}
+                            height={300}
+                            className="rounded-lg relative"
+                          />
+                        </div>
+                        <div>
+                          <h3 className="text-2xl font-bold mb-3 bg-gradient-to-r from-blue-400 to-purple-400 text-transparent bg-clip-text">
+                            Creative Arts Community
+                          </h3>
+                          <p className="text-white/70 mb-4">
+                            The Creative Arts community provides a platform for artistic expression and collaboration.
+                            Members share their creative works, receive constructive feedback, and participate in workshops
+                            that enhance their artistic skills. This community celebrates diversity in creative expression
+                            and encourages innovative thinking.
+                          </p>
+                          <Button className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-md">
+                            Join Community
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                </TabsContent>
+              </motion.div>
             </Tabs>
           </div>
         </section>
@@ -502,7 +635,7 @@ export default function Home() {
                     </div>
                     <div>
                       <h4 className="font-medium text-white">Address</h4>
-                      <p>123 Club Street, City</p>
+                      <p>SOIT RGPV University, Bhopal</p>
                     </div>
                   </div>
 
@@ -522,7 +655,7 @@ export default function Home() {
                     </div>
                     <div>
                       <h4 className="font-medium text-white">Email</h4>
-                      <p>PersonaClub@Gmail.Com</p>
+                      <p>personasoit@gmail.com</p>
                     </div>
                   </div>
                 </div>
@@ -543,8 +676,8 @@ export default function Home() {
 
       {/* Footer */}
       <footer className="bg-black text-white py-12">
-        <div className="container grid gap-12 md:grid-cols-3">
-          <div>
+        <div className="container grid gap-8 md:gap-12 grid-cols-1 md:grid-cols-3">
+          <div className="text-center md:text-left">
             <h3 className="text-xl font-bold mb-4 bg-gradient-to-r from-blue-400 to-purple-400 text-transparent bg-clip-text">
               Quick Links
             </h3>
@@ -578,13 +711,13 @@ export default function Home() {
             </h3>
             <ul className="space-y-2">
               <li className="flex items-center gap-2 text-gray-400">
-                <span>📍</span> 123 Club Street, City
+                <span>📍</span> SOIT RGPV University, Bhopal
               </li>
               <li className="flex items-center gap-2 text-gray-400">
                 <span>📞</span> +1 234 567 890
               </li>
               <li className="flex items-center gap-2 text-gray-400">
-                <span>📧</span> PersonaClub@Gmail.Com
+                <span>📧</span> personasoit@gmail.com
               </li>
             </ul>
           </div>
