@@ -43,6 +43,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const signInWithGoogle = async () => {
     try {
+      // Always use the deployed site URL for redirects
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
@@ -63,6 +64,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     try {
       const { error } = await supabase.auth.signOut()
       if (error) throw error
+      
+      // Redirect to the deployed site after logout
+      window.location.href = 'https://persona-soit.vercel.app/quiz'
     } catch (error) {
       console.error("Error signing out", error)
     }

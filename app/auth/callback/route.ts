@@ -13,11 +13,11 @@ export async function GET(request: Request) {
       await supabase.auth.exchangeCodeForSession(code)
     }
 
-    // Redirect to the deployed site's quiz page instead of the origin
+    // Always redirect to the deployed site's quiz page
     return NextResponse.redirect('https://persona-soit.vercel.app/quiz')
   } catch (error) {
     console.error('Auth callback error:', error)
-    // Also update the error redirect to the deployed site
+    // Always redirect to the deployed site's error page
     return NextResponse.redirect('https://persona-soit.vercel.app/auth-error')
   }
 } 
