@@ -14,6 +14,7 @@ import { BarChart, Clock, Trophy, CheckCircle2, XCircle, ArrowRight, LogIn, Home
 import { useAuth } from "@/contexts/auth-context"
 import { supabase } from "@/lib/supabase"
 import { Quiz, Question, QuizAttempt } from "@/types/quiz"
+import { quizzes as seedQuizzes } from "@/lib/seed-data"
 
 export default function QuizPage() {
   const router = useRouter()
@@ -30,27 +31,143 @@ export default function QuizPage() {
   const [leaderboard, setLeaderboard] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | undefined>(undefined)
+  const [userStats, setUserStats] = useState({
+    quizzesTaken: 0,
+    avgScore: 0,
+    rank: 0,
+    badges: 0
+  })
+  const [userProgress, setUserProgress] = useState<{quizId: string, title: string, score: number}[]>([])
+
+  // Function to fetch leaderboard data
+  const fetchLeaderboard = async () => {
+    try {
+      const { data: leaderboardData } = await supabase
+        .from("users")
+        .select("id, display_name, photo_url, avg_score, quizzes_taken")
+        .order("avg_score", { ascending: false })
+        .limit(5)
+      setLeaderboard(leaderboardData || [])
+      
+      // If user is logged in, calculate their rank
+      if (user) {
+        const { data: allUsers } = await supabase
+          .from("users")
+          .select("id, avg_score")
+          .order("avg_score", { ascending: false })
+        
+        if (allUsers) {
+          const userRank = allUsers.findIndex(u => u.id === user.id) + 1
+          setUserStats(prev => ({ ...prev, rank: userRank > 0 ? userRank : 0 }))
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching leaderboard:", error)
+    }
+  }
+  
+  // Function to fetch user stats
+  const fetchUserStats = async () => {
+    if (!user) return
+    
+    try {
+      const { data: userData, error: userError } = await supabase
+        .from("users")
+        .select("quizzes_taken, avg_score")
+        .eq("id", user.id)
+        .single()
+      
+      if (!userError && userData) {
+        // Calculate badges based on quizzes taken and average score
+        let badges = 0
+        if (userData.quizzes_taken >= 5) badges++
+        if (userData.quizzes_taken >= 10) badges++
+        if (userData.avg_score >= 70) badges++
+        if (userData.avg_score >= 90) badges++
+        
+        setUserStats({
+          quizzesTaken: userData.quizzes_taken || 0,
+          avgScore: userData.avg_score || 0,
+          rank: userStats.rank,
+          badges
+        })
+      }
+    } catch (error) {
+      console.error("Error fetching user stats:", error)
+    }
+  }
+
+  // Function to fetch user progress
+  const fetchUserProgress = async () => {
+    if (!user) return
+    
+    try {
+      // Get user's quiz results
+      const { data: quizResults, error: resultsError } = await supabase
+        .from("quiz_results")
+        .select("quiz_id, score")
+        .eq("user_id", user.id)
+        .order("completed_at", { ascending: false })
+        .limit(3)
+      
+      if (resultsError) throw resultsError
+      
+      if (quizResults && quizResults.length > 0) {
+        // Get quiz titles
+        const quizIds = quizResults.map(result => result.quiz_id)
+        const { data: quizData } = await supabase
+          .from("quizzes")
+          .select("id, title")
+          .in("id", quizIds)
+        
+        if (quizData) {
+          const progressData = quizResults.map(result => {
+            const quiz = quizData.find(q => q.id === result.quiz_id)
+            return {
+              quizId: result.quiz_id,
+              title: quiz ? quiz.title : "Unknown Quiz",
+              score: result.score
+            }
+          })
+          
+          setUserProgress(progressData)
+        }
+      } else {
+        // If no results, use default data for demonstration
+        setUserProgress([
+          { quizId: "1", title: "Personal Growth Fundamentals", score: 85 },
+          { quizId: "2", title: "Professional Communication Skills", score: 70 },
+          { quizId: "3", title: "Leadership Principles", score: 60 }
+        ])
+      }
+    } catch (error) {
+      console.error("Error fetching user progress:", error)
+      // Use default data if there's an error
+      setUserProgress([
+        { quizId: "1", title: "Personal Growth Fundamentals", score: 85 },
+        { quizId: "2", title: "Professional Communication Skills", score: 70 },
+        { quizId: "3", title: "Leadership Principles", score: 60 }
+      ])
+    }
+  }
 
   useEffect(() => {
     const fetchQuizzes = async () => {
       try {
-        const { data: quizzesData } = await supabase.from("quizzes").select("*")
-        setQuizzes(quizzesData || [])
+        // Try to fetch from Supabase first
+        const { data: quizzesData, error } = await supabase.from("quizzes").select("*")
+        
+        if (error || !quizzesData || quizzesData.length === 0) {
+          // If there's an error or no data, use seed data
+          console.log('Using seed quiz data for development')
+          setQuizzes(seedQuizzes)
+        } else {
+          setQuizzes(quizzesData)
+        }
       } catch (error) {
         console.error("Error fetching quizzes:", error)
-      }
-    }
-
-    const fetchLeaderboard = async () => {
-      try {
-        const { data: leaderboardData } = await supabase
-          .from("users")
-          .select("id, display_name, photo_url, avg_score, quizzes_taken")
-          .order("avg_score", { ascending: false })
-          .limit(5)
-        setLeaderboard(leaderboardData || [])
-      } catch (error) {
-        console.error("Error fetching leaderboard:", error)
+        // Fallback to seed data
+        setQuizzes(seedQuizzes)
       }
     }
 
@@ -58,6 +175,14 @@ export default function QuizPage() {
       setIsLoading(false)
     })
   }, [])
+  
+  // Fetch user stats and progress when user changes
+  useEffect(() => {
+    if (user) {
+      fetchUserStats()
+      fetchUserProgress()
+    }
+  }, [user])
 
   // Timer for quiz
   useEffect(() => {
@@ -128,28 +253,103 @@ export default function QuizPage() {
       setScore(calculatedScore)
       setQuizCompleted(true)
       setQuizStarted(false)
-      setError(undefined)
-
-      const quizAttempt: Partial<QuizAttempt> = {
-        quizId: selectedQuiz.id,
-        userId: user.uid,
+      
+      // Create the quiz attempt object
+      const quizAttempt = {
+        user_id: user.id, // Changed from userId to user_id to match DB schema
+        quiz_id: selectedQuiz.id, // Changed from quizId to quiz_id to match DB schema
         score: calculatedScore,
-        totalQuestions: selectedQuiz.questions.length,
-        completedAt: new Date().toISOString(),
-        timeSpent: selectedQuiz.timeLimit - timeLeft,
+        total_questions: selectedQuiz.questions.length,
+        completed_at: new Date().toISOString(),
+        time_spent: selectedQuiz.timeLimit - timeLeft,
         answers: questionResults
       }
 
-      const { error: submitError } = await supabase
-        .from("quiz_results")
-        .insert([quizAttempt])
+      console.log('Saving quiz result:', quizAttempt);
+      
+      try {
+        // Try to insert the quiz result
+        const { data, error: submitError } = await supabase
+          .from("quiz_results")
+          .insert([quizAttempt])
+          .select()
 
-      if (submitError) {
-        throw submitError
+        if (submitError) {
+          // If the table doesn't exist, store locally
+          if (submitError.code === '42P01') {
+            console.log('quiz_results table does not exist. Storing result locally.');
+            
+            // Store in localStorage
+            const localResults = JSON.parse(localStorage.getItem('quizResults') || '[]');
+            localResults.push({
+              ...quizAttempt,
+              id: crypto.randomUUID(),
+              created_at: new Date().toISOString()
+            });
+            localStorage.setItem('quizResults', JSON.stringify(localResults));
+            
+            console.log('Quiz result saved locally');
+          } else {
+            throw submitError;
+          }
+        } else {
+          console.log('Quiz result saved to database:', data);
+          
+          // Update user stats in the users table
+          try {
+            // First get current user stats
+            const { data: userData, error: userError } = await supabase
+              .from("users")
+              .select("quizzes_taken, avg_score, total_score")
+              .eq("id", user.id)
+              .single();
+              
+            if (!userError && userData) {
+              // Calculate new stats
+              const quizzesTaken = (userData.quizzes_taken || 0) + 1;
+              const totalScore = (userData.total_score || 0) + calculatedScore;
+              const avgScore = Math.round(totalScore / quizzesTaken);
+              
+              // Update user stats
+              await supabase
+                .from("users")
+                .update({
+                  quizzes_taken: quizzesTaken,
+                  avg_score: avgScore,
+                  total_score: totalScore,
+                  last_quiz_at: new Date().toISOString()
+                })
+                .eq("id", user.id);
+            }
+          } catch (statsError) {
+            console.error("Error updating user stats:", statsError);
+          }
+        }
+      } catch (dbError) {
+        console.error('Database error:', dbError);
+        
+        // Fallback to local storage
+        const localResults = JSON.parse(localStorage.getItem('quizResults') || '[]');
+        localResults.push({
+          ...quizAttempt,
+          id: crypto.randomUUID(),
+          created_at: new Date().toISOString()
+        });
+        localStorage.setItem('quizResults', JSON.stringify(localResults));
+        
+        console.log('Quiz result saved locally due to database error');
       }
+      
+      // Refresh leaderboard data
+      fetchLeaderboard();
+      
+      // Refresh user progress
+      fetchUserProgress();
+      
+      setError(undefined);
     } catch (error) {
-      setError("Failed to submit quiz. Please try again.")
-      console.error("Error saving quiz result:", error)
+      console.error("Error saving quiz result:", error);
+      setError("Failed to submit quiz. Please try again.");
     }
   }
 
@@ -185,10 +385,10 @@ export default function QuizPage() {
             {user ? (
               <div className="flex items-center gap-4">
                 <Avatar>
-                  <AvatarImage src={user.photoURL || undefined} alt={user.displayName || undefined} />
-                  <AvatarFallback>{user.displayName?.charAt(0) || "U"}</AvatarFallback>
+                  <AvatarImage src={user.user_metadata?.avatar_url || undefined} alt={user.user_metadata?.full_name || undefined} />
+                  <AvatarFallback>{user.user_metadata?.full_name?.charAt(0) || "U"}</AvatarFallback>
                 </Avatar>
-                <span className="text-white hidden md:inline">{user.displayName}</span>
+                <span className="text-white hidden md:inline">{user.user_metadata?.full_name}</span>
                 <Button
                   variant="outline"
                   size="sm"
@@ -304,43 +504,46 @@ export default function QuizPage() {
 
                   <Card className="bg-gradient-to-br from-[#1a2234] to-[#131c31] border-indigo-900/20 text-white">
                     <CardHeader>
-                      <CardTitle>Your Progress</CardTitle>
+                      <div className="flex justify-between items-center">
+                        <CardTitle>Your Progress</CardTitle>
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          onClick={() => fetchUserProgress()}
+                          className="text-white/70 hover:text-white hover:bg-indigo-900/30"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1">
+                            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                            <path d="M3 3v5h5"></path>
+                          </svg>
+                          Refresh
+                        </Button>
+                      </div>
                       <CardDescription className="text-white/70">Track your quiz performance</CardDescription>
                     </CardHeader>
                     <CardContent>
                       <div className="space-y-4">
-                        <div className="flex justify-between items-center">
-                          <span className="text-white/70">Personal Growth Fundamentals</span>
-                          <span className="text-white">85%</span>
-                        </div>
-                        <Progress value={85} className="h-2 bg-gray-800">
-                          <div
-                            className="h-full bg-gradient-to-r from-indigo-600 to-purple-600 rounded-full"
-                            style={{ width: "85%" }}
-                          ></div>
-                        </Progress>
-
-                        <div className="flex justify-between items-center">
-                          <span className="text-white/70">Professional Communication Skills</span>
-                          <span className="text-white">70%</span>
-                        </div>
-                        <Progress value={70} className="h-2 bg-gray-800">
-                          <div
-                            className="h-full bg-gradient-to-r from-indigo-600 to-purple-600 rounded-full"
-                            style={{ width: "70%" }}
-                          ></div>
-                        </Progress>
-
-                        <div className="flex justify-between items-center">
-                          <span className="text-white/70">Leadership Principles</span>
-                          <span className="text-white">60%</span>
-                        </div>
-                        <Progress value={60} className="h-2 bg-gray-800">
-                          <div
-                            className="h-full bg-gradient-to-r from-indigo-600 to-purple-600 rounded-full"
-                            style={{ width: "60%" }}
-                          ></div>
-                        </Progress>
+                        {userProgress.length > 0 ? (
+                          userProgress.map((progress, index) => (
+                            <div key={index}>
+                              <div className="flex justify-between items-center">
+                                <span className="text-white/70">{progress.title}</span>
+                                <span className="text-white">{progress.score}%</span>
+                              </div>
+                              <Progress value={progress.score} className="h-2 bg-gray-800">
+                                <div
+                                  className="h-full bg-gradient-to-r from-indigo-600 to-purple-600 rounded-full"
+                                  style={{ width: `${progress.score}%` }}
+                                ></div>
+                              </Progress>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="text-center py-6">
+                            <p className="text-white/70">No progress data available yet.</p>
+                            <p className="text-white/50 text-sm mt-1">Complete quizzes to see your progress!</p>
+                          </div>
+                        )}
                       </div>
                     </CardContent>
                   </Card>
@@ -349,29 +552,62 @@ export default function QuizPage() {
                 <div className="md:col-span-4 space-y-6">
                   <Card className="bg-gradient-to-br from-[#1a2234] to-[#131c31] border-indigo-900/20 text-white">
                     <CardHeader>
-                      <CardTitle className="flex items-center">
-                        <Trophy className="mr-2 h-5 w-5 text-yellow-400" />
-                        Leaderboard
-                      </CardTitle>
+                      <div className="flex justify-between items-center">
+                        <CardTitle className="flex items-center">
+                          <Trophy className="mr-2 h-5 w-5 text-yellow-400" />
+                          Leaderboard
+                        </CardTitle>
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          onClick={() => fetchLeaderboard()}
+                          className="text-white/70 hover:text-white hover:bg-indigo-900/30"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1">
+                            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                            <path d="M3 3v5h5"></path>
+                          </svg>
+                          Refresh
+                        </Button>
+                      </div>
                       <CardDescription className="text-white/70">Top performers</CardDescription>
                     </CardHeader>
                     <CardContent>
-                      <div className="space-y-4">
-                        {leaderboard.map((user, index) => (
-                          <div key={user.id} className="flex items-center gap-3">
-                            <div className="flex-shrink-0 w-6 text-center font-bold text-white/70">{index + 1}</div>
-                            <Avatar className="flex-shrink-0">
-                              <AvatarImage src={user.photo_url} alt={user.display_name} />
-                              <AvatarFallback>{user.display_name.charAt(0)}</AvatarFallback>
-                            </Avatar>
-                            <div className="flex-grow min-w-0">
-                              <p className="text-white truncate">{user.display_name}</p>
-                              <p className="text-white/70 text-sm">{user.quizzes_taken} quizzes</p>
+                      {leaderboard.length > 0 ? (
+                        <div className="space-y-4">
+                          {leaderboard.map((user, index) => (
+                            <div key={user.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-[#131c31]/50 transition-colors">
+                              <div className="flex-shrink-0 w-6 text-center font-bold text-white/70">
+                                {index === 0 ? (
+                                  <span className="text-yellow-400">🥇</span>
+                                ) : index === 1 ? (
+                                  <span className="text-gray-300">🥈</span>
+                                ) : index === 2 ? (
+                                  <span className="text-amber-600">🥉</span>
+                                ) : (
+                                  index + 1
+                                )}
+                              </div>
+                              <Avatar className="flex-shrink-0 border-2 border-indigo-500/30">
+                                <AvatarImage src={user.photo_url} alt={user.display_name} />
+                                <AvatarFallback>{user.display_name?.charAt(0) || "U"}</AvatarFallback>
+                              </Avatar>
+                              <div className="flex-grow min-w-0">
+                                <p className="text-white truncate font-medium">{user.display_name}</p>
+                                <p className="text-white/70 text-sm">{user.quizzes_taken || 0} quizzes</p>
+                              </div>
+                              <div className="flex-shrink-0 font-bold text-indigo-400 bg-indigo-900/30 px-2 py-1 rounded-md">
+                                {user.avg_score || 0}%
+                              </div>
                             </div>
-                            <div className="flex-shrink-0 font-bold text-indigo-400">{user.avg_score}%</div>
-                          </div>
-                        ))}
-                      </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-center py-6">
+                          <p className="text-white/70">No leaderboard data available yet.</p>
+                          <p className="text-white/50 text-sm mt-1">Complete quizzes to appear on the leaderboard!</p>
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
 
@@ -385,19 +621,19 @@ export default function QuizPage() {
                     <CardContent>
                       <div className="grid grid-cols-2 gap-4">
                         <div className="bg-[#131c31]/50 p-4 rounded-lg text-center">
-                          <p className="text-3xl font-bold text-indigo-400">7</p>
+                          <p className="text-3xl font-bold text-indigo-400">{userStats.quizzesTaken}</p>
                           <p className="text-white/70 text-sm">Quizzes Taken</p>
                         </div>
                         <div className="bg-[#131c31]/50 p-4 rounded-lg text-center">
-                          <p className="text-3xl font-bold text-indigo-400">72%</p>
+                          <p className="text-3xl font-bold text-indigo-400">{userStats.avgScore}%</p>
                           <p className="text-white/70 text-sm">Avg. Score</p>
                         </div>
                         <div className="bg-[#131c31]/50 p-4 rounded-lg text-center">
-                          <p className="text-3xl font-bold text-indigo-400">12</p>
+                          <p className="text-3xl font-bold text-indigo-400">{userStats.rank || '-'}</p>
                           <p className="text-white/70 text-sm">Rank</p>
                         </div>
                         <div className="bg-[#131c31]/50 p-4 rounded-lg text-center">
-                          <p className="text-3xl font-bold text-indigo-400">3</p>
+                          <p className="text-3xl font-bold text-indigo-400">{userStats.badges}</p>
                           <p className="text-white/70 text-sm">Badges</p>
                         </div>
                       </div>

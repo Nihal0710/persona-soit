@@ -1,11 +1,9 @@
 "use client"
 
 import type React from "react"
-
 import { createContext, useContext, useEffect, useState } from "react"
-import { GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, type User } from "firebase/auth"
-import { auth } from "@/lib/firebase"
 import { supabase } from "@/lib/supabase"
+import type { User } from "@supabase/supabase-js"
 
 interface AuthContextType {
   user: User | null
@@ -28,35 +26,34 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setUser(user)
+    // Get initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null)
       setLoading(false)
-
-      if (user) {
-        // Check if user exists in Supabase
-        const { data } = await supabase.from("users").select("*").eq("uid", user.uid).single()
-
-        // If user doesn't exist, create a new record
-        if (!data) {
-          await supabase.from("users").insert([
-            {
-              uid: user.uid,
-              email: user.email,
-              display_name: user.displayName,
-              photo_url: user.photoURL,
-            },
-          ])
-        }
-      }
     })
 
-    return () => unsubscribe()
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null)
+      setLoading(false)
+    })
+
+    return () => subscription.unsubscribe()
   }, [])
 
   const signInWithGoogle = async () => {
-    const provider = new GoogleAuthProvider()
     try {
-      await signInWithPopup(auth, provider)
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent',
+          }
+        }
+      })
+      if (error) throw error
     } catch (error) {
       console.error("Error signing in with Google", error)
     }
@@ -64,7 +61,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const logout = async () => {
     try {
-      await signOut(auth)
+      const { error } = await supabase.auth.signOut()
+      if (error) throw error
     } catch (error) {
       console.error("Error signing out", error)
     }
