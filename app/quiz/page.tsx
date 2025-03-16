@@ -114,12 +114,12 @@ export default function QuizPage() {
       
       if (!quizzesTableExists) {
         console.log('Quizzes table does not exist. Tables should be created via migrations.')
-        return
-      }
-      
+            return
+          }
+          
       // Check if there are already quizzes in the database
       const { data: existingQuizzes, error: checkError } = await supabase
-        .from('quizzes')
+              .from('quizzes')
         .select('id')
         .limit(1)
       
@@ -130,13 +130,13 @@ export default function QuizPage() {
       
       if (existingQuizzes && existingQuizzes.length > 0) {
         console.log('Database already has quizzes, skipping seed')
-        return
-      }
-      
+          return
+        }
+        
       console.log('Seeding quizzes and questions...')
       
       // Insert the quizzes and questions
-      for (const quiz of seedQuizzes) {
+        for (const quiz of seedQuizzes) {
         // Extract questions before inserting quiz
         const questions = [...quiz.questions]
         
@@ -144,16 +144,16 @@ export default function QuizPage() {
         const flattenedQuiz = flattenQuiz(quiz)
         
         // Insert the quiz
-        const { error: insertError } = await supabase
-          .from('quizzes')
+          const { error: insertError } = await supabase
+            .from('quizzes')
           .insert([flattenedQuiz])
-        
-        if (insertError) {
-          console.error(`Error inserting quiz "${quiz.title}":`, insertError)
+          
+          if (insertError) {
+            console.error(`Error inserting quiz "${quiz.title}":`, insertError)
           continue
         }
         
-        console.log(`Successfully inserted quiz: ${quiz.title}`)
+            console.log(`Successfully inserted quiz: ${quiz.title}`)
         
         // Insert the questions with a reference to the quiz
         for (const question of questions) {
@@ -227,15 +227,15 @@ export default function QuizPage() {
         
         // If table doesn't exist, use seed data and try to create it
         if (!quizzesTableExists) {
-          console.log('Quizzes table does not exist, using seed data')
-          setError(undefined) // Clear any previous errors
-          setQuizzes(seedQuizzes)
-          
-          // Try to seed the database for future use
-          if (user) {
-            await seedDatabase()
-          }
-          return
+            console.log('Quizzes table does not exist, using seed data')
+            setError(undefined) // Clear any previous errors
+            setQuizzes(seedQuizzes)
+            
+            // Try to seed the database for future use
+            if (user) {
+              await seedDatabase()
+            }
+            return
         }
         
         // If table exists, try to fetch quizzes
@@ -316,11 +316,11 @@ export default function QuizPage() {
         )
         
         console.log('Successfully fetched quizzes from database:', completeQuizzes.length)
-        setError(undefined) // Clear any previous errors
-        
-        // Validate the quiz data structure
+          setError(undefined) // Clear any previous errors
+          
+          // Validate the quiz data structure
         const validatedQuizzes = validateQuizData(completeQuizzes)
-        setQuizzes(validatedQuizzes)
+          setQuizzes(validatedQuizzes)
       } catch (error: any) {
         console.error("Error fetching quizzes:", error)
         setError(`Error fetching quizzes: ${error.message || JSON.stringify(error)}`)
@@ -384,13 +384,13 @@ export default function QuizPage() {
     }
     
     // Set quiz state
-    setSelectedQuiz(quiz)
-    setCurrentQuestion(0)
-    setAnswers({})
-    setQuizCompleted(false)
+      setSelectedQuiz(quiz)
+      setCurrentQuestion(0)
+      setAnswers({})
+      setQuizCompleted(false)
     setScore(0)
     setQuizStarted(true)
-    setActiveTab("quiz")
+      setActiveTab("quiz")
     setTimeLeft(quiz.timeLimit || 600) // Default to 10 minutes if not specified
   }
 
@@ -468,9 +468,9 @@ export default function QuizPage() {
         // Insert the quiz attempt
         const { error: submitError } = await supabase
           .from("quiz_attempts")
-          .insert([quizAttempt])
+        .insert([quizAttempt])
 
-        if (submitError) {
+      if (submitError) {
           console.error("Error submitting quiz result:", submitError)
         } else {
           console.log("Quiz result saved successfully")
@@ -619,10 +619,10 @@ export default function QuizPage() {
       // Calculate user's rank if they're logged in
       if (user) {
         const userRank = sortedUsers.findIndex(entry => entry.userId === user.id) + 1
-        setUserStats(prev => ({ ...prev, rank: userRank > 0 ? userRank : 0 }))
+          setUserStats(prev => ({ ...prev, rank: userRank > 0 ? userRank : 0 }))
       }
-    } catch (error) {
-      console.error("Error fetching leaderboard:", error)
+      } catch (error) {
+        console.error("Error fetching leaderboard:", error)
       setLeaderboard([])
     }
   }
@@ -756,13 +756,13 @@ export default function QuizPage() {
         return bestAttempt
       }).sort((a, b) => b.score - a.score).slice(0, 5) // Sort by score and take top 5
       
-      // Get quiz titles
+        // Get quiz titles
       const quizIds = bestAttempts.map(attempt => attempt.quiz_id)
       const { data: quizData, error: quizzesError } = await supabase
-        .from("quizzes")
-        .select("id, title")
-        .in("id", quizIds)
-      
+          .from("quizzes")
+          .select("id, title")
+          .in("id", quizIds)
+        
       if (quizzesError || !quizData) {
         console.error("Error fetching quiz data:", quizzesError)
         setUserProgress([])
@@ -772,14 +772,14 @@ export default function QuizPage() {
       // Map the data to the progress format
       const progressData = bestAttempts.map(attempt => {
         const quiz = quizData.find(q => q.id === attempt.quiz_id)
-        return {
+            return {
           quizId: attempt.quiz_id,
-          title: quiz ? quiz.title : "Unknown Quiz",
+              title: quiz ? quiz.title : "Unknown Quiz",
           score: attempt.score
-        }
-      })
-      
-      setUserProgress(progressData)
+            }
+          })
+          
+          setUserProgress(progressData)
     } catch (error) {
       console.error("Error fetching user progress:", error)
       setUserProgress([])
@@ -1005,7 +1005,7 @@ export default function QuizPage() {
                                 }>
                                   {progress.score}%
                                 </Badge>
-                              </div>
+                        </div>
                               <div className="relative pt-1">
                                 <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
                                   <div 
@@ -1015,17 +1015,17 @@ export default function QuizPage() {
                                       progress.score >= 50 ? "bg-gradient-to-r from-yellow-500 to-orange-500" :
                                       "bg-gradient-to-r from-red-500 to-pink-500"
                                     }`}
-                                    style={{ width: `${progress.score}%` }}
-                                  ></div>
+                                  style={{ width: `${progress.score}%` }}
+                          ></div>
                                 </div>
                               </div>
-                            </div>
+                        </div>
                           ))
                         ) : (
                           <div className="text-center py-6">
                             <p className="text-white/70">No progress data available yet.</p>
                             <p className="text-white/50 text-sm mt-1">Complete quizzes to see your progress!</p>
-                          </div>
+                        </div>
                         )}
                       </div>
                       
@@ -1100,8 +1100,8 @@ export default function QuizPage() {
                               <Avatar className={`flex-shrink-0 ${isCurrentUser ? 'border-2 border-indigo-500' : 'border-2 border-indigo-500/30'}`}>
                                 <AvatarImage src={entry.photoUrl} alt={entry.displayName} />
                                 <AvatarFallback>{entry.displayName?.charAt(0) || "U"}</AvatarFallback>
-                              </Avatar>
-                              <div className="flex-grow min-w-0">
+                            </Avatar>
+                            <div className="flex-grow min-w-0">
                                 <div className="flex items-center">
                                   <p className="text-white truncate font-medium">
                                     {entry.displayName}
@@ -1112,11 +1112,11 @@ export default function QuizPage() {
                                   <span className="mr-2">{entry.score}%</span>
                                   <span title="Time taken">⏱️ {Math.floor(entry.timeSpent / 60)}m {entry.timeSpent % 60}s</span>
                                 </div>
-                              </div>
+                            </div>
                               <div className="flex-shrink-0 font-bold text-indigo-400 bg-indigo-900/30 px-2 py-1 rounded-md">
                                 {entry.score}%
                               </div>
-                            </div>
+                          </div>
                           );
                         })}
                       </div>
