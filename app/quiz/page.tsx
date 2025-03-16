@@ -501,15 +501,8 @@ export default function QuizPage() {
       const attemptsTableExists = await tableExists('quiz_attempts')
       
       if (!attemptsTableExists) {
-        console.log('Quiz attempts table does not exist, using default leaderboard data')
-        // Use default data
-        setLeaderboard([
-          { userId: "1", displayName: "Alex Johnson", photoUrl: "", score: 95, completedAt: new Date().toISOString(), timeSpent: 240 },
-          { userId: "2", displayName: "Sam Smith", photoUrl: "", score: 90, completedAt: new Date().toISOString(), timeSpent: 300 },
-          { userId: "3", displayName: "Jordan Lee", photoUrl: "", score: 85, completedAt: new Date().toISOString(), timeSpent: 270 },
-          { userId: "4", displayName: "Taylor Wong", photoUrl: "", score: 80, completedAt: new Date().toISOString(), timeSpent: 320 },
-          { userId: "5", displayName: "Casey Brown", photoUrl: "", score: 75, completedAt: new Date().toISOString(), timeSpent: 350 }
-        ])
+        console.log('Quiz attempts table does not exist')
+        setLeaderboard([])
         return
       }
       
@@ -517,39 +510,85 @@ export default function QuizPage() {
       const profilesTableExists = await tableExists('profiles')
       
       if (!profilesTableExists) {
-        console.log('Profiles table does not exist, using default leaderboard data')
-        // Use default data
-        setLeaderboard([
-          { userId: "1", displayName: "Alex Johnson", photoUrl: "", score: 95, completedAt: new Date().toISOString(), timeSpent: 240 },
-          { userId: "2", displayName: "Sam Smith", photoUrl: "", score: 90, completedAt: new Date().toISOString(), timeSpent: 300 },
-          { userId: "3", displayName: "Jordan Lee", photoUrl: "", score: 85, completedAt: new Date().toISOString(), timeSpent: 270 },
-          { userId: "4", displayName: "Taylor Wong", photoUrl: "", score: 80, completedAt: new Date().toISOString(), timeSpent: 320 },
-          { userId: "5", displayName: "Casey Brown", photoUrl: "", score: 75, completedAt: new Date().toISOString(), timeSpent: 350 }
-        ])
+        console.log('Profiles table does not exist')
+        setLeaderboard([])
         return
       }
       
-      // Fallback to direct query instead of using RPC
+      // Get all quiz attempts
       const { data: attemptData, error: attemptError } = await supabase
         .from('quiz_attempts')
-        .select('user_id, score, completed_at, time_spent')
-        .order('score', { ascending: false })
+        .select('user_id, quiz_id, score, completed_at, time_spent')
       
-      if (attemptError || !attemptData) {
+      if (attemptError || !attemptData || attemptData.length === 0) {
         console.error("Error fetching attempt data:", attemptError)
-        // Use default data as fallback
-        setLeaderboard([
-          { userId: "1", displayName: "Alex Johnson", photoUrl: "", score: 95, completedAt: new Date().toISOString(), timeSpent: 240 },
-          { userId: "2", displayName: "Sam Smith", photoUrl: "", score: 90, completedAt: new Date().toISOString(), timeSpent: 300 },
-          { userId: "3", displayName: "Jordan Lee", photoUrl: "", score: 85, completedAt: new Date().toISOString(), timeSpent: 270 },
-          { userId: "4", displayName: "Taylor Wong", photoUrl: "", score: 80, completedAt: new Date().toISOString(), timeSpent: 320 },
-          { userId: "5", displayName: "Casey Brown", photoUrl: "", score: 75, completedAt: new Date().toISOString(), timeSpent: 350 }
-        ])
+        setLeaderboard([])
         return
       }
       
+      // Group attempts by user and calculate their best scores
+      const userScores: Record<string, {
+        userId: string,
+        totalScore: number,
+        quizCount: number,
+        bestCompletedAt: string,
+        bestTimeSpent: number
+      }> = {}
+      
+      // Process each attempt
+      attemptData.forEach(attempt => {
+        const userId = attempt.user_id
+        
+        if (!userScores[userId]) {
+          userScores[userId] = {
+            userId,
+            totalScore: 0,
+            quizCount: 0,
+            bestCompletedAt: attempt.completed_at,
+            bestTimeSpent: attempt.time_spent
+          }
+        }
+        
+        // Track unique quizzes per user
+        const uniqueQuizzes = new Set()
+        attemptData
+          .filter(a => a.user_id === userId)
+          .forEach(a => uniqueQuizzes.add(a.quiz_id))
+        
+        // Update user's stats with their best scores
+        userScores[userId].quizCount = uniqueQuizzes.size
+        
+        // Calculate average score for this user
+        const userAttempts = attemptData.filter(a => a.user_id === userId)
+        const totalScore = userAttempts.reduce((sum, a) => sum + a.score, 0)
+        userScores[userId].totalScore = Math.round(totalScore / userAttempts.length)
+        
+        // Find the most recent attempt with the best score
+        const bestAttempt = userAttempts.reduce((best, current) => 
+          current.score > best.score ? current : best, userAttempts[0])
+        
+        userScores[userId].bestCompletedAt = bestAttempt.completed_at
+        userScores[userId].bestTimeSpent = bestAttempt.time_spent
+      })
+      
+      // Convert to array and sort by score
+      const sortedUsers = Object.values(userScores)
+        .sort((a, b) => {
+          // First sort by total score
+          if (b.totalScore !== a.totalScore) {
+            return b.totalScore - a.totalScore
+          }
+          // Then by number of quizzes completed
+          if (b.quizCount !== a.quizCount) {
+            return b.quizCount - a.quizCount
+          }
+          // Finally by time spent (faster is better)
+          return a.bestTimeSpent - b.bestTimeSpent
+        })
+        .slice(0, 10) // Take top 10
+      
       // Get user profiles for the leaderboard entries
-      const userIds = attemptData.map(entry => entry.user_id)
+      const userIds = sortedUsers.map(entry => entry.userId)
       
       // Fetch profiles for these users
       const { data: profilesData, error: profilesError } = await supabase
@@ -562,16 +601,16 @@ export default function QuizPage() {
       }
       
       // Map the data to the leaderboard format
-      const leaderboardData = attemptData.map(attempt => {
-        const profile = profilesData?.find(p => p.id === attempt.user_id)
+      const leaderboardData = sortedUsers.map(user => {
+        const profile = profilesData?.find(p => p.id === user.userId)
         
         return {
-          userId: attempt.user_id,
+          userId: user.userId,
           displayName: profile?.full_name || "Anonymous User",
           photoUrl: profile?.avatar_url || "",
-          score: attempt.score,
-          completedAt: attempt.completed_at,
-          timeSpent: attempt.time_spent
+          score: user.totalScore,
+          completedAt: user.bestCompletedAt,
+          timeSpent: user.bestTimeSpent
         }
       })
       
@@ -579,44 +618,12 @@ export default function QuizPage() {
       
       // Calculate user's rank if they're logged in
       if (user) {
-        // Get all scores
-        const { data: allScores, error: allScoresError } = await supabase
-          .from('quiz_attempts')
-          .select('user_id, score')
-          .order('score', { ascending: false })
-        
-        if (!allScoresError && allScores) {
-          // Get unique users with their highest score
-          const userScores: Record<string, number> = {}
-          
-          allScores.forEach(score => {
-            if (!userScores[score.user_id] || score.score > userScores[score.user_id]) {
-              userScores[score.user_id] = score.score
-            }
-          })
-          
-          // Convert to array and sort by score
-          const sortedUsers = Object.entries(userScores)
-            .sort(([, scoreA], [, scoreB]) => scoreB - scoreA)
-            .map(([userId]) => userId)
-          
-          // Find user's position
-          const userRank = sortedUsers.indexOf(user.id) + 1
-          
-          // Update user stats with rank
-          setUserStats(prev => ({ ...prev, rank: userRank > 0 ? userRank : 0 }))
-        }
+        const userRank = sortedUsers.findIndex(entry => entry.userId === user.id) + 1
+        setUserStats(prev => ({ ...prev, rank: userRank > 0 ? userRank : 0 }))
       }
     } catch (error) {
       console.error("Error fetching leaderboard:", error)
-      // Use default data as fallback
-      setLeaderboard([
-        { userId: "1", displayName: "Alex Johnson", photoUrl: "", score: 95, completedAt: new Date().toISOString(), timeSpent: 240 },
-        { userId: "2", displayName: "Sam Smith", photoUrl: "", score: 90, completedAt: new Date().toISOString(), timeSpent: 300 },
-        { userId: "3", displayName: "Jordan Lee", photoUrl: "", score: 85, completedAt: new Date().toISOString(), timeSpent: 270 },
-        { userId: "4", displayName: "Taylor Wong", photoUrl: "", score: 80, completedAt: new Date().toISOString(), timeSpent: 320 },
-        { userId: "5", displayName: "Casey Brown", photoUrl: "", score: 75, completedAt: new Date().toISOString(), timeSpent: 350 }
-      ])
+      setLeaderboard([])
     }
   }
   
@@ -629,13 +636,12 @@ export default function QuizPage() {
       const attemptsTableExists = await tableExists('quiz_attempts')
       
       if (!attemptsTableExists) {
-        console.log('Quiz attempts table does not exist, using default user stats')
-        // Use default data
+        console.log('Quiz attempts table does not exist')
         setUserStats({
-          quizzesTaken: 3,
-          avgScore: 75,
-          rank: userStats.rank || 12, // Keep existing rank if available
-          badges: 2
+          quizzesTaken: 0,
+          avgScore: 0,
+          rank: 0,
+          badges: 0
         })
         return
       }
@@ -648,6 +654,12 @@ export default function QuizPage() {
       
       if (attemptsError) {
         console.error("Error fetching user attempts:", attemptsError)
+        setUserStats({
+          quizzesTaken: 0,
+          avgScore: 0,
+          rank: 0,
+          badges: 0
+        })
         return
       }
       
@@ -697,7 +709,6 @@ export default function QuizPage() {
       }
     } catch (error) {
       console.error("Error fetching user stats:", error)
-      // Use default data as fallback
       setUserStats({
         quizzesTaken: 0,
         avgScore: 0,
@@ -716,13 +727,8 @@ export default function QuizPage() {
       const attemptsTableExists = await tableExists('quiz_attempts')
       
       if (!attemptsTableExists) {
-        console.log('Quiz attempts table does not exist, using default progress data')
-        // Use default data
-        setUserProgress([
-          { quizId: "1", title: "Personal Growth Fundamentals", score: 85 },
-          { quizId: "2", title: "Professional Communication Skills", score: 70 },
-          { quizId: "3", title: "Leadership Principles", score: 60 }
-        ])
+        console.log('Quiz attempts table does not exist')
+        setUserProgress([])
         return
       }
       
@@ -735,12 +741,7 @@ export default function QuizPage() {
       
       if (attemptsError || !quizAttempts || quizAttempts.length === 0) {
         console.error("Error fetching user attempts:", attemptsError)
-        // Use default data as fallback
-        setUserProgress([
-          { quizId: "1", title: "Personal Growth Fundamentals", score: 85 },
-          { quizId: "2", title: "Professional Communication Skills", score: 70 },
-          { quizId: "3", title: "Leadership Principles", score: 60 }
-        ])
+        setUserProgress([])
         return
       }
       
@@ -764,12 +765,7 @@ export default function QuizPage() {
       
       if (quizzesError || !quizData) {
         console.error("Error fetching quiz data:", quizzesError)
-        // Use default data as fallback
-        setUserProgress([
-          { quizId: "1", title: "Personal Growth Fundamentals", score: 85 },
-          { quizId: "2", title: "Professional Communication Skills", score: 70 },
-          { quizId: "3", title: "Leadership Principles", score: 60 }
-        ])
+        setUserProgress([])
         return
       }
       
@@ -786,12 +782,7 @@ export default function QuizPage() {
       setUserProgress(progressData)
     } catch (error) {
       console.error("Error fetching user progress:", error)
-      // Use default data if there's an error
-      setUserProgress([
-        { quizId: "1", title: "Personal Growth Fundamentals", score: 85 },
-        { quizId: "2", title: "Professional Communication Skills", score: 70 },
-        { quizId: "3", title: "Leadership Principles", score: 60 }
-      ])
+      setUserProgress([])
     }
   }
 
@@ -1043,7 +1034,9 @@ export default function QuizPage() {
                           <div className="flex justify-between items-center text-sm text-white/70">
                             <span>Average Score:</span>
                             <span className="font-medium text-white">
-                              {Math.round(userProgress.reduce((sum, item) => sum + item.score, 0) / userProgress.length)}%
+                              {userProgress.length > 0 
+                                ? `${Math.round(userProgress.reduce((sum, item) => sum + item.score, 0) / userProgress.length)}%` 
+                                : "0%"}
                             </span>
                           </div>
                           <div className="flex justify-between items-center text-sm text-white/70 mt-1">
