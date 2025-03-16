@@ -17,10 +17,12 @@ import { Quiz, Question, QuizAttempt } from "@/types/quiz"
 import { quizzes as seedQuizzes } from "@/lib/seed-data"
 import { forceLogout } from "@/lib/auth-utils"
 import AuthPopup from "@/components/auth-popup"
+import { createQuizzesTable, createQuestionsTable, createQuizAttemptsTable, tableExists, flattenQuiz, flattenQuestion } from "@/lib/database-setup"
+import { v4 as uuidv4 } from 'uuid'
 
 export default function QuizPage() {
   const router = useRouter()
-  const { user, loading, signInWithGoogle, logout } = useAuth()
+  const { user, loading, signInWithGoogle, logout, checkSession } = useAuth()
   const [activeTab, setActiveTab] = useState("dashboard")
   const [selectedQuiz, setSelectedQuiz] = useState<Quiz | null>(null)
   const [currentQuestion, setCurrentQuestion] = useState(0)
@@ -44,6 +46,7 @@ export default function QuizPage() {
   // Auth state
   const [isAuthPopupOpen, setIsAuthPopupOpen] = useState(false)
   const [isLoggingOut, setIsLoggingOut] = useState(false)
+  const [isEmergencyResetting, setIsEmergencyResetting] = useState(false)
 
   // Function to handle successful authentication
   const handleAuthSuccess = () => {
@@ -84,6 +87,7 @@ export default function QuizPage() {
           if (quizStarted) {
             setQuizStarted(false)
             setError("Your session expired. Please sign in again.")
+            setIsAuthPopupOpen(true)
           }
         }
       } catch (error) {
@@ -105,73 +109,68 @@ export default function QuizPage() {
     try {
       console.log('Attempting to seed database with initial quiz data...')
       
-      // Check if quizzes table exists and is empty
-      const { data, error } = await supabase
-        .from('quizzes')
-        .select('count')
+      // Check if quizzes table exists
+      const quizzesTableExists = await tableExists('quizzes')
       
-      // If there's an error, the table might not exist
-      if (error && error.code === '42P01') {
-        console.log('Quizzes table does not exist, creating it...')
-        
-        // Create the quizzes table
-        // Note: In a real application, you would use migrations or SQL scripts
-        // This is a simplified approach for demonstration purposes
-        try {
-          // We'll try to insert the first quiz, which should create the table
-          // if it doesn't exist (Supabase can auto-create tables)
-          const { error: createError } = await supabase
-            .from('quizzes')
-            .insert([seedQuizzes[0]])
-          
-          if (createError) {
-            console.error('Error creating quizzes table:', createError)
-            return
-          }
-          
-          console.log('Successfully created quizzes table')
-          
-          // Insert the rest of the quizzes
-          for (let i = 1; i < seedQuizzes.length; i++) {
-            const { error: insertError } = await supabase
-              .from('quizzes')
-              .insert([seedQuizzes[i]])
-            
-            if (insertError) {
-              console.error(`Error inserting quiz "${seedQuizzes[i].title}":`, insertError)
-            } else {
-              console.log(`Successfully inserted quiz: ${seedQuizzes[i].title}`)
-            }
-          }
-        } catch (createError) {
-          console.error('Error creating quizzes table:', createError)
-          return
-        }
-      }
-      // If there's no error but no data or empty data, the table exists but is empty
-      else if (!error && (!data || data.length === 0)) {
-        console.log('Quizzes table exists but is empty, seeding database...')
-        
-        // Insert seed quizzes into the database
-        for (const quiz of seedQuizzes) {
-          const { error: insertError } = await supabase
-            .from('quizzes')
-            .insert([quiz])
-          
-          if (insertError) {
-            console.error(`Error inserting quiz "${quiz.title}":`, insertError)
-          } else {
-            console.log(`Successfully inserted quiz: ${quiz.title}`)
-          }
-        }
-      } else if (error) {
-        console.error('Error checking quizzes table:', error)
+      if (!quizzesTableExists) {
+        console.log('Quizzes table does not exist. Tables should be created via migrations.')
         return
-      } else {
-        console.log('Database already contains quizzes, skipping seed')
       }
       
-      console.log('Database seeding completed')
+      // Check if there are already quizzes in the database
+      const { data: existingQuizzes, error: checkError } = await supabase
+        .from('quizzes')
+        .select('id')
+        .limit(1)
+      
+      if (checkError) {
+        console.error('Error checking existing quizzes:', checkError)
+        return
+      }
+      
+      if (existingQuizzes && existingQuizzes.length > 0) {
+        console.log('Database already has quizzes, skipping seed')
+        return
+      }
+      
+      console.log('Seeding quizzes and questions...')
+      
+      // Insert the quizzes and questions
+      for (const quiz of seedQuizzes) {
+        // Extract questions before inserting quiz
+        const questions = [...quiz.questions]
+        
+        // Flatten the quiz object for database insertion
+        const flattenedQuiz = flattenQuiz(quiz)
+        
+        // Insert the quiz
+        const { error: insertError } = await supabase
+          .from('quizzes')
+          .insert([flattenedQuiz])
+        
+        if (insertError) {
+          console.error(`Error inserting quiz "${quiz.title}":`, insertError)
+          continue
+        }
+        
+        console.log(`Successfully inserted quiz: ${quiz.title}`)
+        
+        // Insert the questions with a reference to the quiz
+        for (const question of questions) {
+          // Flatten the question object for database insertion
+          const flattenedQuestion = flattenQuestion(question, quiz.id)
+          
+          const { error: insertQuestionError } = await supabase
+            .from('questions')
+            .insert([flattenedQuestion])
+          
+          if (insertQuestionError) {
+            console.error(`Error inserting question for quiz "${quiz.title}":`, insertQuestionError)
+          }
+        }
+      }
+      
+      console.log('Database seeding completed successfully')
     } catch (error) {
       console.error('Error seeding database:', error)
     }
@@ -224,49 +223,35 @@ export default function QuizPage() {
     const fetchQuizzes = async () => {
       try {
         // First check if the quizzes table exists
-        const { error: tableCheckError } = await supabase
-          .from('quizzes')
-          .select('count')
-          .limit(1)
-          .single()
+        const quizzesTableExists = await tableExists('quizzes')
         
-        // If there's an error with the table check, it might not exist
-        if (tableCheckError) {
-          // Check if it's a "relation does not exist" error (table not found)
-          if (tableCheckError.code === '42P01') {
-            console.log('Quizzes table does not exist, using seed data')
-            setError(undefined) // Clear any previous errors
-            setQuizzes(seedQuizzes)
-            
-            // Try to seed the database for future use
-            if (user) {
-              await seedDatabase()
-            }
-            return
-          } 
-          // Handle other types of errors
-          else {
-            console.error('Error checking quizzes table:', tableCheckError)
-            setError(`Database error: ${tableCheckError.message}`)
-            setQuizzes(seedQuizzes)
-            return
+        // If table doesn't exist, use seed data and try to create it
+        if (!quizzesTableExists) {
+          console.log('Quizzes table does not exist, using seed data')
+          setError(undefined) // Clear any previous errors
+          setQuizzes(seedQuizzes)
+          
+          // Try to seed the database for future use
+          if (user) {
+            await seedDatabase()
           }
+          return
         }
         
         // If table exists, try to fetch quizzes
-        const { data, error } = await supabase
+        const { data: quizzesData, error: quizzesError } = await supabase
           .from("quizzes")
           .select("*")
         
-        if (error) {
-          console.error("Error fetching quizzes:", error)
-          setError(`Error fetching quizzes: ${error.message}`)
+        if (quizzesError) {
+          console.error("Error fetching quizzes:", quizzesError)
+          setError(`Error fetching quizzes: ${quizzesError.message}`)
           setQuizzes(seedQuizzes)
           return
         }
         
         // If we got data but it's empty, use seed data
-        if (!data || data.length === 0) {
+        if (!quizzesData || quizzesData.length === 0) {
           console.log('No quizzes found in database, using seed data')
           setError(undefined) // Clear any previous errors
           setQuizzes(seedQuizzes)
@@ -275,14 +260,67 @@ export default function QuizPage() {
           if (user) {
             await seedDatabase()
           }
-        } else {
-          console.log('Successfully fetched quizzes from database:', data.length)
-          setError(undefined) // Clear any previous errors
-          
-          // Validate the quiz data structure
-          const validatedQuizzes = validateQuizData(data)
-          setQuizzes(validatedQuizzes)
+          return
         }
+        
+        // Fetch questions for each quiz
+        const completeQuizzes = await Promise.all(
+          quizzesData.map(async (quiz) => {
+            // Fetch questions for this quiz
+            const { data: questionsData, error: questionsError } = await supabase
+              .from("questions")
+              .select("*")
+              .eq("quiz_id", quiz.id)
+            
+            if (questionsError) {
+              console.error(`Error fetching questions for quiz ${quiz.id}:`, questionsError)
+              // Return the quiz without questions as fallback
+              return {
+                id: quiz.id,
+                title: quiz.title,
+                description: quiz.description,
+                createdAt: quiz.created_at,
+                createdBy: quiz.created_by,
+                category: quiz.category,
+                difficulty: quiz.difficulty,
+                timeLimit: quiz.time_limit,
+                imageUrl: quiz.image_url,
+                questions: [] // Empty questions as fallback
+              }
+            }
+            
+            // Convert questions from database format to app format
+            const formattedQuestions = questionsData.map(q => ({
+              id: q.id,
+              question: q.question,
+              options: Array.isArray(q.options) ? q.options : JSON.parse(q.options),
+              correctAnswer: q.correct_answer,
+              type: q.type,
+              timeLimit: q.time_limit
+            }))
+            
+            // Return the complete quiz with questions
+            return {
+              id: quiz.id,
+              title: quiz.title,
+              description: quiz.description,
+              createdAt: quiz.created_at,
+              createdBy: quiz.created_by,
+              category: quiz.category,
+              difficulty: quiz.difficulty,
+              timeLimit: quiz.time_limit,
+              imageUrl: quiz.image_url,
+              questions: formattedQuestions
+            }
+          })
+        )
+        
+        console.log('Successfully fetched quizzes from database:', completeQuizzes.length)
+        setError(undefined) // Clear any previous errors
+        
+        // Validate the quiz data structure
+        const validatedQuizzes = validateQuizData(completeQuizzes)
+        setQuizzes(validatedQuizzes)
       } catch (error: any) {
         console.error("Error fetching quizzes:", error)
         setError(`Error fetching quizzes: ${error.message || JSON.stringify(error)}`)
@@ -330,20 +368,44 @@ export default function QuizPage() {
     return () => clearInterval(timer)
   }, [quizStarted, timeLeft, quizCompleted])
 
-  const handleStartQuiz = (quiz: Quiz) => {
-    try {
-      setSelectedQuiz(quiz)
-      setCurrentQuestion(0)
-      setAnswers({})
-      setTimeLeft(quiz.timeLimit)
-      setQuizStarted(true)
-      setQuizCompleted(false)
-      setActiveTab("quiz")
-      setError(undefined)
-    } catch (error) {
-      setError("Failed to start quiz. Please try again.")
-      console.error("Error starting quiz:", error)
+  const handleStartQuiz = async (quiz: Quiz) => {
+    // Check if user is authenticated before starting quiz
+    if (!user) {
+      setError("Please sign in to start a quiz")
+      setIsAuthPopupOpen(true)
+      return
     }
+    
+    // Verify session is still valid
+    const isSessionValid = await checkSession()
+    if (!isSessionValid) {
+      setError("Your session has expired. Please sign in again.")
+      setIsAuthPopupOpen(true)
+      return
+    }
+    
+    setSelectedQuiz(quiz)
+    setCurrentQuestion(0)
+    setAnswers({})
+    setQuizCompleted(false)
+    setScore(0)
+    setQuizStarted(true)
+    setTimeLeft(quiz.timeLimit || 600) // Default to 10 minutes if not specified
+    
+    // Start the timer
+    const timer = setInterval(() => {
+      setTimeLeft(prev => {
+        if (prev <= 1) {
+          clearInterval(timer)
+          handleSubmitQuiz()
+          return 0
+        }
+        return prev - 1
+      })
+    }, 1000)
+    
+    // Store the timer ID for cleanup
+    return () => clearInterval(timer)
   }
 
   const handleAnswerSelect = (questionId: string, answer: string) => {
@@ -387,100 +449,55 @@ export default function QuizPage() {
       
       // Create the quiz attempt object
       const quizAttempt = {
-        user_id: user.id, // Changed from userId to user_id to match DB schema
-        quiz_id: selectedQuiz.id, // Changed from quizId to quiz_id to match DB schema
+        id: uuidv4(), // Generate a new UUID for the attempt
+        user_id: user.id,
+        quiz_id: selectedQuiz.id,
         score: calculatedScore,
         total_questions: selectedQuiz.questions.length,
         completed_at: new Date().toISOString(),
         time_spent: selectedQuiz.timeLimit - timeLeft,
-        answers: questionResults
+        answers: JSON.stringify(questionResults) // Convert to JSON string for storage
       }
 
       console.log('Saving quiz result:', quizAttempt);
       
       try {
-        // Try to insert the quiz result
-        const { data, error: submitError } = await supabase
-        .from("quiz_results")
-        .insert([quizAttempt])
-          .select()
-
-      if (submitError) {
-          // If the table doesn't exist, store locally
-          if (submitError.code === '42P01') {
-            console.log('quiz_results table does not exist. Storing result locally.');
-            
-            // Store in localStorage
-            const localResults = JSON.parse(localStorage.getItem('quizResults') || '[]');
-            localResults.push({
-              ...quizAttempt,
-              id: crypto.randomUUID(),
-              created_at: new Date().toISOString()
-            });
-            localStorage.setItem('quizResults', JSON.stringify(localResults));
-            
-            console.log('Quiz result saved locally');
-          } else {
-            throw submitError;
-          }
-        } else {
-          console.log('Quiz result saved to database:', data);
+        // Check if quiz_attempts table exists
+        const attemptsTableExists = await tableExists('quiz_attempts')
+        
+        // If table doesn't exist, create it
+        if (!attemptsTableExists) {
+          console.log('Quiz attempts table does not exist, creating it...')
+          const { error: createTableError } = await createQuizAttemptsTable()
           
-          // Update user stats in the users table
-          try {
-            // First get current user stats
-            const { data: userData, error: userError } = await supabase
-              .from("users")
-              .select("quizzes_taken, avg_score, total_score")
-              .eq("id", user.id)
-              .single();
-              
-            if (!userError && userData) {
-              // Calculate new stats
-              const quizzesTaken = (userData.quizzes_taken || 0) + 1;
-              const totalScore = (userData.total_score || 0) + calculatedScore;
-              const avgScore = Math.round(totalScore / quizzesTaken);
-              
-              // Update user stats
-              await supabase
-                .from("users")
-                .update({
-                  quizzes_taken: quizzesTaken,
-                  avg_score: avgScore,
-                  total_score: totalScore,
-                  last_quiz_at: new Date().toISOString()
-                })
-                .eq("id", user.id);
-            }
-          } catch (statsError) {
-            console.error("Error updating user stats:", statsError);
+          if (createTableError) {
+            console.error('Error creating quiz attempts table:', createTableError)
+            return
           }
+          
+          console.log('Successfully created quiz attempts table')
         }
-      } catch (dbError) {
-        console.error('Database error:', dbError);
         
-        // Fallback to local storage
-        const localResults = JSON.parse(localStorage.getItem('quizResults') || '[]');
-        localResults.push({
-          ...quizAttempt,
-          id: crypto.randomUUID(),
-          created_at: new Date().toISOString()
-        });
-        localStorage.setItem('quizResults', JSON.stringify(localResults));
-        
-        console.log('Quiz result saved locally due to database error');
+        // Insert the quiz attempt
+        const { error: submitError } = await supabase
+          .from("quiz_attempts")
+          .insert([quizAttempt])
+
+        if (submitError) {
+          console.error("Error submitting quiz result:", submitError)
+        } else {
+          console.log("Quiz result saved successfully")
+          
+          // Update user stats and leaderboard
+          fetchUserStats()
+          fetchUserProgress()
+          fetchLeaderboard()
+        }
+      } catch (submitError) {
+        console.error("Error submitting quiz:", submitError)
       }
-      
-      // Refresh leaderboard data
-      fetchLeaderboard();
-      
-      // Refresh user progress
-      fetchUserProgress();
-      
-      setError(undefined);
     } catch (error) {
-      console.error("Error saving quiz result:", error);
-      setError("Failed to submit quiz. Please try again.");
+      console.error("Error calculating quiz results:", error)
     }
   }
 
@@ -491,29 +508,128 @@ export default function QuizPage() {
   }
 
   // Function to fetch leaderboard data
-    const fetchLeaderboard = async () => {
-      try {
-        const { data: leaderboardData } = await supabase
-          .from("users")
-          .select("id, display_name, photo_url, avg_score, quizzes_taken")
-          .order("avg_score", { ascending: false })
-          .limit(5)
-        setLeaderboard(leaderboardData || [])
+  const fetchLeaderboard = async () => {
+    try {
+      // Check if quiz_attempts table exists
+      const attemptsTableExists = await tableExists('quiz_attempts')
       
-      // If user is logged in, calculate their rank
-      if (user) {
-        const { data: allUsers } = await supabase
-          .from("users")
-          .select("id, avg_score")
-          .order("avg_score", { ascending: false })
+      if (!attemptsTableExists) {
+        console.log('Quiz attempts table does not exist, using default leaderboard data')
+        // Use default data
+        setLeaderboard([
+          { userId: "1", displayName: "Alex Johnson", photoUrl: "", score: 95, completedAt: new Date().toISOString(), timeSpent: 240 },
+          { userId: "2", displayName: "Sam Smith", photoUrl: "", score: 90, completedAt: new Date().toISOString(), timeSpent: 300 },
+          { userId: "3", displayName: "Jordan Lee", photoUrl: "", score: 85, completedAt: new Date().toISOString(), timeSpent: 270 },
+          { userId: "4", displayName: "Taylor Wong", photoUrl: "", score: 80, completedAt: new Date().toISOString(), timeSpent: 320 },
+          { userId: "5", displayName: "Casey Brown", photoUrl: "", score: 75, completedAt: new Date().toISOString(), timeSpent: 350 }
+        ])
+        return
+      }
+      
+      // First, check if profiles table exists
+      const profilesTableExists = await tableExists('profiles')
+      
+      if (!profilesTableExists) {
+        console.log('Profiles table does not exist, using default leaderboard data')
+        // Use default data
+        setLeaderboard([
+          { userId: "1", displayName: "Alex Johnson", photoUrl: "", score: 95, completedAt: new Date().toISOString(), timeSpent: 240 },
+          { userId: "2", displayName: "Sam Smith", photoUrl: "", score: 90, completedAt: new Date().toISOString(), timeSpent: 300 },
+          { userId: "3", displayName: "Jordan Lee", photoUrl: "", score: 85, completedAt: new Date().toISOString(), timeSpent: 270 },
+          { userId: "4", displayName: "Taylor Wong", photoUrl: "", score: 80, completedAt: new Date().toISOString(), timeSpent: 320 },
+          { userId: "5", displayName: "Casey Brown", photoUrl: "", score: 75, completedAt: new Date().toISOString(), timeSpent: 350 }
+        ])
+        return
+      }
+      
+      // Fallback to direct query instead of using RPC
+      const { data: attemptData, error: attemptError } = await supabase
+        .from('quiz_attempts')
+        .select('user_id, score, completed_at, time_spent')
+        .order('score', { ascending: false })
+      
+      if (attemptError || !attemptData) {
+        console.error("Error fetching attempt data:", attemptError)
+        // Use default data as fallback
+        setLeaderboard([
+          { userId: "1", displayName: "Alex Johnson", photoUrl: "", score: 95, completedAt: new Date().toISOString(), timeSpent: 240 },
+          { userId: "2", displayName: "Sam Smith", photoUrl: "", score: 90, completedAt: new Date().toISOString(), timeSpent: 300 },
+          { userId: "3", displayName: "Jordan Lee", photoUrl: "", score: 85, completedAt: new Date().toISOString(), timeSpent: 270 },
+          { userId: "4", displayName: "Taylor Wong", photoUrl: "", score: 80, completedAt: new Date().toISOString(), timeSpent: 320 },
+          { userId: "5", displayName: "Casey Brown", photoUrl: "", score: 75, completedAt: new Date().toISOString(), timeSpent: 350 }
+        ])
+        return
+      }
+      
+      // Get user profiles for the leaderboard entries
+      const userIds = attemptData.map(entry => entry.user_id)
+      
+      // Fetch profiles for these users
+      const { data: profilesData, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, full_name, avatar_url')
+        .in('id', userIds)
+      
+      if (profilesError) {
+        console.error("Error fetching profiles:", profilesError)
+      }
+      
+      // Map the data to the leaderboard format
+      const leaderboardData = attemptData.map(attempt => {
+        const profile = profilesData?.find(p => p.id === attempt.user_id)
         
-        if (allUsers) {
-          const userRank = allUsers.findIndex(u => u.id === user.id) + 1
+        return {
+          userId: attempt.user_id,
+          displayName: profile?.full_name || "Anonymous User",
+          photoUrl: profile?.avatar_url || "",
+          score: attempt.score,
+          completedAt: attempt.completed_at,
+          timeSpent: attempt.time_spent
+        }
+      })
+      
+      setLeaderboard(leaderboardData)
+      
+      // Calculate user's rank if they're logged in
+      if (user) {
+        // Get all scores
+        const { data: allScores, error: allScoresError } = await supabase
+          .from('quiz_attempts')
+          .select('user_id, score')
+          .order('score', { ascending: false })
+        
+        if (!allScoresError && allScores) {
+          // Get unique users with their highest score
+          const userScores: Record<string, number> = {}
+          
+          allScores.forEach(score => {
+            if (!userScores[score.user_id] || score.score > userScores[score.user_id]) {
+              userScores[score.user_id] = score.score
+            }
+          })
+          
+          // Convert to array and sort by score
+          const sortedUsers = Object.entries(userScores)
+            .sort(([, scoreA], [, scoreB]) => scoreB - scoreA)
+            .map(([userId]) => userId)
+          
+          // Find user's position
+          const userRank = sortedUsers.indexOf(user.id) + 1
+          
+          // Update user stats with rank
           setUserStats(prev => ({ ...prev, rank: userRank > 0 ? userRank : 0 }))
         }
       }
-      } catch (error) {
-        console.error("Error fetching leaderboard:", error)
+    } catch (error) {
+      console.error("Error fetching leaderboard:", error)
+      // Use default data as fallback
+      setLeaderboard([
+        { userId: "1", displayName: "Alex Johnson", photoUrl: "", score: 95, completedAt: new Date().toISOString(), timeSpent: 240 },
+        { userId: "2", displayName: "Sam Smith", photoUrl: "", score: 90, completedAt: new Date().toISOString(), timeSpent: 300 },
+        { userId: "3", displayName: "Jordan Lee", photoUrl: "", score: 85, completedAt: new Date().toISOString(), timeSpent: 270 },
+        { userId: "4", displayName: "Taylor Wong", photoUrl: "", score: 80, completedAt: new Date().toISOString(), timeSpent: 320 },
+        { userId: "5", displayName: "Casey Brown", photoUrl: "", score: 75, completedAt: new Date().toISOString(), timeSpent: 350 }
+      ])
     }
   }
   
@@ -522,29 +638,85 @@ export default function QuizPage() {
     if (!user) return
     
     try {
-      const { data: userData, error: userError } = await supabase
-        .from("users")
-        .select("quizzes_taken, avg_score")
-        .eq("id", user.id)
-        .single()
+      // Check if quiz_attempts table exists
+      const attemptsTableExists = await tableExists('quiz_attempts')
       
-      if (!userError && userData) {
+      if (!attemptsTableExists) {
+        console.log('Quiz attempts table does not exist, using default user stats')
+        // Use default data
+        setUserStats({
+          quizzesTaken: 3,
+          avgScore: 75,
+          rank: userStats.rank || 12, // Keep existing rank if available
+          badges: 2
+        })
+        return
+      }
+      
+      // Get user's quiz attempts
+      const { data: userAttempts, error: attemptsError } = await supabase
+        .from("quiz_attempts")
+        .select("id, quiz_id, score")
+        .eq("user_id", user.id)
+      
+      if (attemptsError) {
+        console.error("Error fetching user attempts:", attemptsError)
+        return
+      }
+      
+      if (userAttempts && userAttempts.length > 0) {
+        // Count unique quizzes taken
+        const uniqueQuizzes = new Set(userAttempts.map(attempt => attempt.quiz_id)).size
+        
+        // Calculate average score across all attempts
+        const totalScore = userAttempts.reduce((sum, attempt) => sum + attempt.score, 0)
+        const avgScore = Math.round(totalScore / userAttempts.length)
+        
         // Calculate badges based on quizzes taken and average score
         let badges = 0
-        if (userData.quizzes_taken >= 5) badges++
-        if (userData.quizzes_taken >= 10) badges++
-        if (userData.avg_score >= 70) badges++
-        if (userData.avg_score >= 90) badges++
+        
+        // Badge 1: Completed at least 1 quiz
+        if (uniqueQuizzes >= 1) badges++
+        
+        // Badge 2: Completed at least 3 different quizzes
+        if (uniqueQuizzes >= 3) badges++
+        
+        // Badge 3: Completed at least 5 different quizzes
+        if (uniqueQuizzes >= 5) badges++
+        
+        // Badge 4: Average score at least 70%
+        if (avgScore >= 70) badges++
+        
+        // Badge 5: Average score at least 90%
+        if (avgScore >= 90) badges++
+        
+        // Badge 6: Completed at least 10 quiz attempts
+        if (userAttempts.length >= 10) badges++
         
         setUserStats({
-          quizzesTaken: userData.quizzes_taken || 0,
-          avgScore: userData.avg_score || 0,
-          rank: userStats.rank,
+          quizzesTaken: uniqueQuizzes,
+          avgScore,
+          rank: userStats.rank || 0, // Keep existing rank
           badges
+        })
+      } else {
+        // No attempts yet
+        setUserStats({
+          quizzesTaken: 0,
+          avgScore: 0,
+          rank: 0,
+          badges: 0
         })
       }
     } catch (error) {
       console.error("Error fetching user stats:", error)
+      // Use default data as fallback
+      setUserStats({
+        quizzesTaken: 0,
+        avgScore: 0,
+        rank: userStats.rank || 0, // Keep existing rank if available
+        badges: 0
+      })
     }
   }
 
@@ -553,44 +725,78 @@ export default function QuizPage() {
     if (!user) return
     
     try {
-      // Get user's quiz results
-      const { data: quizResults, error: resultsError } = await supabase
-        .from("quiz_results")
-        .select("quiz_id, score")
-        .eq("user_id", user.id)
-        .order("completed_at", { ascending: false })
-        .limit(3)
+      // Check if quiz_attempts table exists
+      const attemptsTableExists = await tableExists('quiz_attempts')
       
-      if (resultsError) throw resultsError
-      
-      if (quizResults && quizResults.length > 0) {
-        // Get quiz titles
-        const quizIds = quizResults.map(result => result.quiz_id)
-        const { data: quizData } = await supabase
-          .from("quizzes")
-          .select("id, title")
-          .in("id", quizIds)
-        
-        if (quizData) {
-          const progressData = quizResults.map(result => {
-            const quiz = quizData.find(q => q.id === result.quiz_id)
-            return {
-              quizId: result.quiz_id,
-              title: quiz ? quiz.title : "Unknown Quiz",
-              score: result.score
-            }
-          })
-          
-          setUserProgress(progressData)
-        }
-      } else {
-        // If no results, use default data for demonstration
+      if (!attemptsTableExists) {
+        console.log('Quiz attempts table does not exist, using default progress data')
+        // Use default data
         setUserProgress([
           { quizId: "1", title: "Personal Growth Fundamentals", score: 85 },
           { quizId: "2", title: "Professional Communication Skills", score: 70 },
           { quizId: "3", title: "Leadership Principles", score: 60 }
         ])
+        return
       }
+      
+      // Get user's quiz attempts directly
+      const { data: quizAttempts, error: attemptsError } = await supabase
+        .from("quiz_attempts")
+        .select("quiz_id, score, completed_at")
+        .eq("user_id", user.id)
+        .order("completed_at", { ascending: false })
+      
+      if (attemptsError || !quizAttempts || quizAttempts.length === 0) {
+        console.error("Error fetching user attempts:", attemptsError)
+        // Use default data as fallback
+        setUserProgress([
+          { quizId: "1", title: "Personal Growth Fundamentals", score: 85 },
+          { quizId: "2", title: "Professional Communication Skills", score: 70 },
+          { quizId: "3", title: "Leadership Principles", score: 60 }
+        ])
+        return
+      }
+      
+      // Get unique quiz IDs
+      const uniqueQuizIds = Array.from(new Set(quizAttempts.map(attempt => attempt.quiz_id)))
+      
+      // Get best score for each quiz
+      const bestAttempts = uniqueQuizIds.map(quizId => {
+        const attempts = quizAttempts.filter(attempt => attempt.quiz_id === quizId)
+        const bestAttempt = attempts.reduce((best, current) => 
+          current.score > best.score ? current : best, attempts[0])
+        return bestAttempt
+      }).sort((a, b) => b.score - a.score).slice(0, 5) // Sort by score and take top 5
+      
+      // Get quiz titles
+      const quizIds = bestAttempts.map(attempt => attempt.quiz_id)
+      const { data: quizData, error: quizzesError } = await supabase
+        .from("quizzes")
+        .select("id, title")
+        .in("id", quizIds)
+      
+      if (quizzesError || !quizData) {
+        console.error("Error fetching quiz data:", quizzesError)
+        // Use default data as fallback
+        setUserProgress([
+          { quizId: "1", title: "Personal Growth Fundamentals", score: 85 },
+          { quizId: "2", title: "Professional Communication Skills", score: 70 },
+          { quizId: "3", title: "Leadership Principles", score: 60 }
+        ])
+        return
+      }
+      
+      // Map the data to the progress format
+      const progressData = bestAttempts.map(attempt => {
+        const quiz = quizData.find(q => q.id === attempt.quiz_id)
+        return {
+          quizId: attempt.quiz_id,
+          title: quiz ? quiz.title : "Unknown Quiz",
+          score: attempt.score
+        }
+      })
+      
+      setUserProgress(progressData)
     } catch (error) {
       console.error("Error fetching user progress:", error)
       // Use default data if there's an error
@@ -602,12 +808,27 @@ export default function QuizPage() {
     }
   }
 
+  // Function to handle emergency reset
+  const handleEmergencyReset = () => {
+    setIsEmergencyResetting(true)
+    // Clear all auth data and reload
+    localStorage.clear()
+    setTimeout(() => {
+      window.location.href = '/'
+    }, 1000)
+  }
+
   if (loading || isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#0f172a]">
         <div className="text-center">
-          <div className="w-16 h-16 border-4 border-t-indigo-600 border-r-transparent border-b-indigo-600 border-l-transparent rounded-full animate-spin mx-auto"></div>
-          <p className="mt-4 text-white">Loading...</p>
+          <div className="relative">
+            <div className="w-16 h-16 border-4 border-indigo-600/30 rounded-full mx-auto"></div>
+            <div className="w-16 h-16 border-4 border-t-indigo-600 border-r-transparent border-b-indigo-600 border-l-transparent rounded-full animate-spin mx-auto absolute top-0 left-0"></div>
+            <div className="w-16 h-16 border-4 border-t-transparent border-r-purple-600 border-b-transparent border-l-purple-600 rounded-full animate-spin mx-auto absolute top-0 left-0" style={{ animationDirection: 'reverse', animationDuration: '1s' }}></div>
+          </div>
+          <p className="mt-4 text-white">Loading quiz data...</p>
+          <p className="text-white/50 text-sm">Please wait</p>
         </div>
       </div>
     )
@@ -685,11 +906,11 @@ export default function QuizPage() {
                 started!
               </p>
               <div className="space-y-3">
-                <Button
+              <Button
                   onClick={() => setIsAuthPopupOpen(true)}
-                  className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white"
-                >
-                  <LogIn className="mr-2 h-4 w-4" />
+                className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white"
+              >
+                <LogIn className="mr-2 h-4 w-4" />
                   Sign In / Sign Up
                 </Button>
                 <Button
@@ -706,7 +927,7 @@ export default function QuizPage() {
                     </g>
                   </svg>
                   Sign in with Google
-                </Button>
+              </Button>
               </div>
             </CardContent>
           </Card>
@@ -794,26 +1015,55 @@ export default function QuizPage() {
                       <div className="space-y-4">
                         {userProgress.length > 0 ? (
                           userProgress.map((progress, index) => (
-                            <div key={index}>
-                        <div className="flex justify-between items-center">
-                                <span className="text-white/70">{progress.title}</span>
-                                <span className="text-white">{progress.score}%</span>
-                        </div>
-                              <Progress value={progress.score} className="h-2 bg-gray-800">
-                          <div
-                            className="h-full bg-gradient-to-r from-indigo-600 to-purple-600 rounded-full"
-                                  style={{ width: `${progress.score}%` }}
-                          ></div>
-                        </Progress>
-                        </div>
+                            <div key={index} className="bg-[#131c31]/50 p-3 rounded-lg hover:bg-[#131c31]/70 transition-colors">
+                              <div className="flex justify-between items-center mb-1">
+                                <span className="text-white font-medium">{progress.title}</span>
+                                <Badge className={
+                                  progress.score >= 90 ? "bg-green-900/50 text-green-300" :
+                                  progress.score >= 70 ? "bg-blue-900/50 text-blue-300" :
+                                  progress.score >= 50 ? "bg-yellow-900/50 text-yellow-300" :
+                                  "bg-red-900/50 text-red-300"
+                                }>
+                                  {progress.score}%
+                                </Badge>
+                              </div>
+                              <div className="relative pt-1">
+                                <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
+                                  <div 
+                                    className={`h-full rounded-full ${
+                                      progress.score >= 90 ? "bg-gradient-to-r from-green-500 to-green-400" :
+                                      progress.score >= 70 ? "bg-gradient-to-r from-blue-500 to-indigo-500" :
+                                      progress.score >= 50 ? "bg-gradient-to-r from-yellow-500 to-orange-500" :
+                                      "bg-gradient-to-r from-red-500 to-pink-500"
+                                    }`}
+                                    style={{ width: `${progress.score}%` }}
+                                  ></div>
+                                </div>
+                              </div>
+                            </div>
                           ))
                         ) : (
                           <div className="text-center py-6">
                             <p className="text-white/70">No progress data available yet.</p>
                             <p className="text-white/50 text-sm mt-1">Complete quizzes to see your progress!</p>
-                        </div>
+                          </div>
                         )}
                       </div>
+                      
+                      {userProgress.length > 0 && (
+                        <div className="mt-4 pt-4 border-t border-indigo-900/30">
+                          <div className="flex justify-between items-center text-sm text-white/70">
+                            <span>Average Score:</span>
+                            <span className="font-medium text-white">
+                              {Math.round(userProgress.reduce((sum, item) => sum + item.score, 0) / userProgress.length)}%
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center text-sm text-white/70 mt-1">
+                            <span>Quizzes Displayed:</span>
+                            <span className="font-medium text-white">{userProgress.length}</span>
+                          </div>
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
                 </div>
@@ -844,8 +1094,17 @@ export default function QuizPage() {
                     <CardContent>
                       {leaderboard.length > 0 ? (
                       <div className="space-y-4">
-                        {leaderboard.map((user, index) => (
-                            <div key={user.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-[#131c31]/50 transition-colors">
+                        {leaderboard.map((entry, index) => {
+                          const isCurrentUser = user && entry.userId === user.id;
+                          return (
+                            <div 
+                              key={entry.userId} 
+                              className={`flex items-center gap-3 p-2 rounded-lg transition-colors ${
+                                isCurrentUser 
+                                  ? 'bg-indigo-900/30 border border-indigo-500/50' 
+                                  : 'hover:bg-[#131c31]/50'
+                              }`}
+                            >
                               <div className="flex-shrink-0 w-6 text-center font-bold text-white/70">
                                 {index === 0 ? (
                                   <span className="text-yellow-400">🥇</span>
@@ -857,19 +1116,28 @@ export default function QuizPage() {
                                   index + 1
                                 )}
                               </div>
-                              <Avatar className="flex-shrink-0 border-2 border-indigo-500/30">
-                              <AvatarImage src={user.photo_url} alt={user.display_name} />
-                                <AvatarFallback>{user.display_name?.charAt(0) || "U"}</AvatarFallback>
-                            </Avatar>
-                            <div className="flex-grow min-w-0">
-                                <p className="text-white truncate font-medium">{user.display_name}</p>
-                                <p className="text-white/70 text-sm">{user.quizzes_taken || 0} quizzes</p>
-                            </div>
-                              <div className="flex-shrink-0 font-bold text-indigo-400 bg-indigo-900/30 px-2 py-1 rounded-md">
-                                {user.avg_score || 0}%
+                              <Avatar className={`flex-shrink-0 ${isCurrentUser ? 'border-2 border-indigo-500' : 'border-2 border-indigo-500/30'}`}>
+                                <AvatarImage src={entry.photoUrl} alt={entry.displayName} />
+                                <AvatarFallback>{entry.displayName?.charAt(0) || "U"}</AvatarFallback>
+                              </Avatar>
+                              <div className="flex-grow min-w-0">
+                                <div className="flex items-center">
+                                  <p className="text-white truncate font-medium">
+                                    {entry.displayName}
+                                    {isCurrentUser && <span className="ml-1 text-xs text-indigo-400">(You)</span>}
+                                  </p>
+                                </div>
+                                <div className="flex items-center text-white/70 text-xs">
+                                  <span className="mr-2">{entry.score}%</span>
+                                  <span title="Time taken">⏱️ {Math.floor(entry.timeSpent / 60)}m {entry.timeSpent % 60}s</span>
+                                </div>
                               </div>
-                          </div>
-                        ))}
+                              <div className="flex-shrink-0 font-bold text-indigo-400 bg-indigo-900/30 px-2 py-1 rounded-md">
+                                {entry.score}%
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                       ) : (
                         <div className="text-center py-6">
@@ -904,6 +1172,66 @@ export default function QuizPage() {
                         <div className="bg-[#131c31]/50 p-4 rounded-lg text-center">
                           <p className="text-3xl font-bold text-indigo-400">{userStats.badges}</p>
                           <p className="text-white/70 text-sm">Badges</p>
+                        </div>
+                      </div>
+                      
+                      {/* Badges Display */}
+                      <div className="mt-4">
+                        <h3 className="text-sm font-medium text-white/70 mb-2">Your Badges</h3>
+                        <div className="grid grid-cols-3 gap-2">
+                          {/* Badge 1: Completed at least 1 quiz */}
+                          <div 
+                            className={`p-2 rounded-lg text-center ${userStats.quizzesTaken >= 1 ? 'bg-indigo-900/50 border border-indigo-500/50' : 'bg-[#131c31]/30 border border-gray-700/30'}`}
+                            title="Beginner: Complete at least 1 quiz"
+                          >
+                            <div className="text-2xl mb-1">🏅</div>
+                            <p className={`text-xs ${userStats.quizzesTaken >= 1 ? 'text-white' : 'text-white/30'}`}>Beginner</p>
+                          </div>
+                          
+                          {/* Badge 2: Completed at least 3 different quizzes */}
+                          <div 
+                            className={`p-2 rounded-lg text-center ${userStats.quizzesTaken >= 3 ? 'bg-indigo-900/50 border border-indigo-500/50' : 'bg-[#131c31]/30 border border-gray-700/30'}`}
+                            title="Explorer: Complete at least 3 different quizzes"
+                          >
+                            <div className="text-2xl mb-1">🔍</div>
+                            <p className={`text-xs ${userStats.quizzesTaken >= 3 ? 'text-white' : 'text-white/30'}`}>Explorer</p>
+                          </div>
+                          
+                          {/* Badge 3: Completed at least 5 different quizzes */}
+                          <div 
+                            className={`p-2 rounded-lg text-center ${userStats.quizzesTaken >= 5 ? 'bg-indigo-900/50 border border-indigo-500/50' : 'bg-[#131c31]/30 border border-gray-700/30'}`}
+                            title="Adventurer: Complete at least 5 different quizzes"
+                          >
+                            <div className="text-2xl mb-1">🌟</div>
+                            <p className={`text-xs ${userStats.quizzesTaken >= 5 ? 'text-white' : 'text-white/30'}`}>Adventurer</p>
+                          </div>
+                          
+                          {/* Badge 4: Average score at least 70% */}
+                          <div 
+                            className={`p-2 rounded-lg text-center ${userStats.avgScore >= 70 ? 'bg-indigo-900/50 border border-indigo-500/50' : 'bg-[#131c31]/30 border border-gray-700/30'}`}
+                            title="Scholar: Achieve an average score of at least 70%"
+                          >
+                            <div className="text-2xl mb-1">📚</div>
+                            <p className={`text-xs ${userStats.avgScore >= 70 ? 'text-white' : 'text-white/30'}`}>Scholar</p>
+                          </div>
+                          
+                          {/* Badge 5: Average score at least 90% */}
+                          <div 
+                            className={`p-2 rounded-lg text-center ${userStats.avgScore >= 90 ? 'bg-indigo-900/50 border border-indigo-500/50' : 'bg-[#131c31]/30 border border-gray-700/30'}`}
+                            title="Master: Achieve an average score of at least 90%"
+                          >
+                            <div className="text-2xl mb-1">🏆</div>
+                            <p className={`text-xs ${userStats.avgScore >= 90 ? 'text-white' : 'text-white/30'}`}>Master</p>
+                          </div>
+                          
+                          {/* Badge 6: Completed at least 10 quiz attempts */}
+                          <div 
+                            className={`p-2 rounded-lg text-center ${userStats.quizzesTaken >= 10 ? 'bg-indigo-900/50 border border-indigo-500/50' : 'bg-[#131c31]/30 border border-gray-700/30'}`}
+                            title="Dedicated: Complete at least 10 different quizzes"
+                          >
+                            <div className="text-2xl mb-1">⭐</div>
+                            <p className={`text-xs ${userStats.quizzesTaken >= 10 ? 'text-white' : 'text-white/30'}`}>Dedicated</p>
+                          </div>
                         </div>
                       </div>
                     </CardContent>
@@ -1068,7 +1396,13 @@ export default function QuizPage() {
                 </CardContent>
                 <CardFooter>
                   <Button
-                    onClick={() => setActiveTab("dashboard")}
+                    onClick={() => {
+                      setActiveTab("dashboard");
+                      setQuizCompleted(false);
+                      setSelectedQuiz(null);
+                      setAnswers({});
+                      setScore(0);
+                    }}
                     className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white"
                   >
                     Back to Dashboard
@@ -1093,14 +1427,19 @@ export default function QuizPage() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => {
-            // Clear all auth data and reload
-            localStorage.clear();
-            window.location.href = '/quiz';
-          }}
+          onClick={handleEmergencyReset}
+          disabled={isEmergencyResetting}
           className="bg-red-900/30 border-red-500/50 text-white hover:bg-red-900/50"
         >
-          Emergency Reset
+          {isEmergencyResetting ? (
+            <span className="flex items-center">
+              <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              Resetting...
+            </span>
+          ) : "Emergency Reset"}
         </Button>
       </div>
 

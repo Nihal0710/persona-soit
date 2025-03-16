@@ -13,6 +13,7 @@ interface AuthContextType {
   loading: boolean
   signInWithGoogle: () => Promise<void>
   logout: () => Promise<void>
+  checkSession: () => Promise<boolean>
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -21,6 +22,7 @@ const AuthContext = createContext<AuthContextType>({
   loading: true,
   signInWithGoogle: async () => {},
   logout: async () => {},
+  checkSession: async () => false,
 })
 
 export const useAuth = () => useContext(AuthContext)
@@ -35,8 +37,32 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const handleSessionExpiration = () => {
     setUser(null)
     setSession(null)
-    // Redirect to the login page
-    router.push('/quiz')
+    // Redirect to the home page
+    router.push('/')
+  }
+
+  // Function to check if session is valid
+  const checkSession = async (): Promise<boolean> => {
+    try {
+      const { data } = await supabase.auth.getSession()
+      
+      if (!data.session) {
+        // Session is invalid or expired
+        setUser(null)
+        setSession(null)
+        return false
+      }
+      
+      // Update session and user data
+      setSession(data.session)
+      setUser(data.session.user)
+      return true
+    } catch (error) {
+      console.error("Error checking session:", error)
+      setUser(null)
+      setSession(null)
+      return false
+    }
   }
 
   useEffect(() => {
@@ -62,7 +88,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setUser(session?.user ?? null)
       setLoading(false)
       
-      // If session is null (expired or logged out), redirect to login
+      // If session is null (expired or logged out), redirect to home
       if (!session) {
         handleSessionExpiration()
       }
@@ -104,8 +130,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       // Clear all auth data from local storage
       clearAuthData()
       
-      // Force a full page reload to clear any cached state
-      window.location.href = '/quiz'
+      // Redirect to the home page
+      window.location.href = '/'
     } catch (error) {
       console.error("Error signing out", error)
       
@@ -113,14 +139,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setUser(null)
       setSession(null)
       clearAuthData()
-      window.location.href = '/quiz'
+      window.location.href = '/'
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, signInWithGoogle, logout }}>
+    <AuthContext.Provider value={{ user, session, loading, signInWithGoogle, logout, checkSession }}>
       {children}
     </AuthContext.Provider>
   )

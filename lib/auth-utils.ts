@@ -32,13 +32,13 @@ export const forceLogout = async () => {
     // Clear local storage
     clearAuthData()
     
-    // Redirect to the quiz page
-    window.location.href = '/quiz'
+    // Redirect to the home page
+    window.location.href = '/'
   } catch (error) {
     console.error('Error during force logout:', error)
     
     // Even if there's an error, try to clear data and redirect
     clearAuthData()
-    window.location.href = '/quiz'
+    window.location.href = '/'
   }
 } 

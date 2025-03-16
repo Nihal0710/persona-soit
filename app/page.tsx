@@ -46,7 +46,7 @@ export default function Home() {
     }
   }
 
-  if (isLoading) {
+  if (isLoading || authLoading) {
     return <LoadingScreen />
   }
 

@@ -14,11 +14,11 @@ export async function middleware(req: NextRequest) {
     
     // Check for protected routes that require authentication
     const isProtectedRoute = req.nextUrl.pathname.includes('/dashboard') || 
-                            (req.nextUrl.pathname.includes('/quiz') && req.nextUrl.pathname !== '/quiz')
+                            (req.nextUrl.pathname.includes('/quiz/') && req.nextUrl.pathname !== '/quiz')
     
-    // If accessing a protected route without a session, redirect to login
+    // If accessing a protected route without a session, redirect to home page
     if (isProtectedRoute && !session) {
-      const redirectUrl = new URL('/quiz', req.url)
+      const redirectUrl = new URL('/', req.url)
       return NextResponse.redirect(redirectUrl)
     }
   } catch (error) {

@@ -20,7 +20,6 @@ export default function LoadingScreen() {
     setParticles(newParticles)
   }, [])
 
-
   // Progress bar animation - completes in exactly 3 seconds
   useEffect(() => {
     const totalDuration = 3000 // 3 seconds in milliseconds
@@ -61,7 +60,8 @@ export default function LoadingScreen() {
             duration: 3,
             ease: "easeOut",
             times: [0, 0.5, 1],
-            repeat: 1,
+            repeat: Infinity,
+            repeatType: "loop",
           }}
           style={{
             width: `${particle.size}px`,
@@ -79,6 +79,7 @@ export default function LoadingScreen() {
       >
         <div className="relative w-40 h-40 mx-auto mb-8">
           <motion.div
+            initial={{ rotate: 0 }}
             animate={{
               rotate: 360,
               scale: [1, 1.05, 1],
@@ -89,33 +90,35 @@ export default function LoadingScreen() {
               ],
             }}
             transition={{
-              rotate: { duration: 2, repeat: 1, ease: "linear" },
-              scale: { duration: 1, repeat: 2, ease: "easeInOut" },
-              boxShadow: { duration: 1.5, repeat: 2, ease: "easeInOut" },
+              rotate: { duration: 3, repeat: Infinity, ease: "linear", repeatType: "loop" },
+              scale: { duration: 1.5, repeat: Infinity, ease: "easeInOut", repeatType: "reverse" },
+              boxShadow: { duration: 1.5, repeat: Infinity, ease: "easeInOut", repeatType: "reverse" },
             }}
             className="w-40 h-40 rounded-full bg-gradient-to-r from-indigo-600 to-purple-600 flex items-center justify-center"
           >
             <div className="w-36 h-36 rounded-full bg-[#0f172a] flex items-center justify-center">
               <motion.div
+                initial={{ rotate: 0 }}
                 animate={{ 
                   rotate: -360,
                   scale: [1, 1.1, 1],
                 }}
                 transition={{
-                  rotate: { duration: 3, ease: "easeInOut" },
-                  scale: { duration: 1.5, repeat: 1, ease: "easeInOut" },
+                  rotate: { duration: 3, repeat: Infinity, ease: "linear", repeatType: "loop" },
+                  scale: { duration: 1.5, repeat: Infinity, ease: "easeInOut", repeatType: "reverse" },
                 }}
                 className="w-32 h-32 rounded-full bg-gradient-to-r from-indigo-600 to-purple-600 opacity-50 flex items-center justify-center"
               >
                 <div className="w-28 h-28 rounded-full bg-[#0f172a] flex items-center justify-center">
                   <motion.div
+                    initial={{ rotate: 0 }}
                     animate={{ 
                       rotate: 360,
                       opacity: [0.3, 0.6, 0.3],
                     }}
                     transition={{
-                      rotate: { duration: 3, ease: "easeInOut" },
-                      opacity: { duration: 1.5, repeat: 1, ease: "easeInOut" },
+                      rotate: { duration: 3, repeat: Infinity, ease: "linear", repeatType: "loop" },
+                      opacity: { duration: 1.5, repeat: Infinity, ease: "easeInOut", repeatType: "reverse" },
                     }}
                     className="w-24 h-24 rounded-full bg-gradient-to-r from-indigo-600 to-purple-600 opacity-30 flex items-center justify-center"
                   >
@@ -124,20 +127,21 @@ export default function LoadingScreen() {
                         scale: [1, 1.2, 1],
                       }}
                       transition={{
-                        scale: { duration: 1.5, repeat: 1, ease: "easeInOut" },
+                        scale: { duration: 1.5, repeat: Infinity, ease: "easeInOut", repeatType: "reverse" },
                       }}
                       className="w-20 h-20 rounded-full bg-[#0f172a] flex items-center justify-center"
                     >
                       <motion.div
-                        initial={{ opacity: 0, scale: 0 }}
+                        initial={{ opacity: 0, scale: 0, rotate: 0 }}
                         animate={{ 
                           opacity: 1,
                           scale: 1,
                           rotate: 360,
                         }}
                         transition={{
-                          duration: 1,
-                          ease: "easeOut",
+                          opacity: { duration: 0.5 },
+                          scale: { duration: 0.5 },
+                          rotate: { duration: 3, repeat: Infinity, ease: "linear", repeatType: "loop" },
                         }}
                         className="w-12 h-12 rounded-full bg-gradient-to-r from-blue-500 to-purple-500"
                       />
@@ -157,8 +161,9 @@ export default function LoadingScreen() {
           }}
           transition={{ 
             duration: 1.5, 
-            repeat: 1, 
-            ease: "easeInOut" 
+            repeat: Infinity, 
+            ease: "easeInOut",
+            repeatType: "reverse"
           }}
         >
           The Personality Grooming Club
@@ -174,14 +179,14 @@ export default function LoadingScreen() {
           <motion.div
             className="absolute top-0 bottom-0 left-0 right-0 bg-gradient-to-r from-transparent via-white to-transparent opacity-30"
             animate={{ x: ["0%", "100%"] }}
-            transition={{ duration: 1, repeat: 3, ease: "easeInOut" }}
+            transition={{ duration: 1, repeat: Infinity, ease: "easeInOut", repeatType: "loop" }}
           />
         </div>
 
         <motion.p 
           className="text-white/70 mt-3"
           animate={{ opacity: [0.7, 1, 0.7] }}
-          transition={{ duration: 1.5, repeat: 1, ease: "easeInOut" }}
+          transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut", repeatType: "reverse" }}
         >
           Loading experience... {progress}%
         </motion.p>

@@ -1,0 +1,13 @@
+-- Create a function to execute SQL queries
+CREATE OR REPLACE FUNCTION exec_sql(sql_query TEXT)
+RETURNS SETOF json
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  RETURN QUERY EXECUTE sql_query;
+EXCEPTION
+  WHEN OTHERS THEN
+    RAISE EXCEPTION 'SQL Error: %', SQLERRM;
+END;
+$$; 

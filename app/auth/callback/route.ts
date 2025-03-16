@@ -27,11 +27,18 @@ export async function GET(request: Request) {
       }
     }
 
-    // After successful authentication, redirect to the deployed Vercel URL
-    return NextResponse.redirect('https://persona-soit.vercel.app/quiz')
+    // Get the origin from the request URL
+    const origin = new URL(request.url).origin
+    
+    // After successful authentication, redirect to the home page
+    return NextResponse.redirect(`${origin}/`)
   } catch (error) {
     console.error('Auth callback error:', error)
-    // Redirect to the deployed error page
-    return NextResponse.redirect('https://persona-soit.vercel.app/auth-error')
+    
+    // Get the origin from the request URL
+    const origin = new URL(request.url).origin
+    
+    // Redirect to the error page
+    return NextResponse.redirect(`${origin}/auth-error`)
   }
 } 
