@@ -355,20 +355,27 @@ export default function QuizPage() {
 
   // Timer for quiz
   useEffect(() => {
-    let timer: NodeJS.Timeout
+    let timer: NodeJS.Timeout | undefined;
 
     if (quizStarted && selectedQuiz && timeLeft > 0) {
       timer = setInterval(() => {
-        setTimeLeft((prev) => prev - 1)
-      }, 1000)
-    } else if (timeLeft === 0 && quizStarted && !quizCompleted) {
-      handleSubmitQuiz()
+        setTimeLeft((prev) => {
+          if (prev <= 1) {
+            clearInterval(timer);
+            handleSubmitQuiz();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
     }
 
-    return () => clearInterval(timer)
-  }, [quizStarted, timeLeft, quizCompleted])
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [quizStarted, selectedQuiz]);
 
-  const handleStartQuiz = async (quiz: Quiz) => {
+  const handleStartQuiz = (quiz: Quiz) => {
     // Check if user is authenticated before starting quiz
     if (!user) {
       setError("Please sign in to start a quiz")
@@ -376,36 +383,15 @@ export default function QuizPage() {
       return
     }
     
-    // Verify session is still valid
-    const isSessionValid = await checkSession()
-    if (!isSessionValid) {
-      setError("Your session has expired. Please sign in again.")
-      setIsAuthPopupOpen(true)
-      return
-    }
-    
+    // Set quiz state
     setSelectedQuiz(quiz)
     setCurrentQuestion(0)
     setAnswers({})
     setQuizCompleted(false)
     setScore(0)
     setQuizStarted(true)
+    setActiveTab("quiz")
     setTimeLeft(quiz.timeLimit || 600) // Default to 10 minutes if not specified
-    
-    // Start the timer
-    const timer = setInterval(() => {
-      setTimeLeft(prev => {
-        if (prev <= 1) {
-          clearInterval(timer)
-          handleSubmitQuiz()
-          return 0
-        }
-        return prev - 1
-      })
-    }, 1000)
-    
-    // Store the timer ID for cleanup
-    return () => clearInterval(timer)
   }
 
   const handleAnswerSelect = (questionId: string, answer: string) => {
@@ -438,7 +424,7 @@ export default function QuizPage() {
           questionId: question.id,
           selectedAnswer: answers[question.id] || "",
           isCorrect,
-          timeSpent: selectedQuiz.timeLimit - timeLeft // Approximate time spent
+          timeSpent: selectedQuiz.timeLimit ? selectedQuiz.timeLimit - timeLeft : 0 // Approximate time spent
         }
       })
 
@@ -446,6 +432,7 @@ export default function QuizPage() {
       setScore(calculatedScore)
       setQuizCompleted(true)
       setQuizStarted(false)
+      setActiveTab("dashboard") // Ensure we're on the dashboard tab
       
       // Create the quiz attempt object
       const quizAttempt = {
@@ -455,7 +442,7 @@ export default function QuizPage() {
         score: calculatedScore,
         total_questions: selectedQuiz.questions.length,
         completed_at: new Date().toISOString(),
-        time_spent: selectedQuiz.timeLimit - timeLeft,
+        time_spent: selectedQuiz.timeLimit ? selectedQuiz.timeLimit - timeLeft : 0,
         answers: JSON.stringify(questionResults) // Convert to JSON string for storage
       }
 
@@ -933,7 +920,8 @@ export default function QuizPage() {
           </Card>
         ) : (
           <>
-            {activeTab === "dashboard" && !quizStarted && !quizCompleted && (
+            {/* Dashboard View */}
+            {activeTab === "dashboard" && !quizStarted && (
               <div className="grid gap-6 md:grid-cols-12">
                 <div className="md:col-span-8 space-y-6">
                   <Card className="bg-gradient-to-br from-[#1a2234] to-[#131c31] border-indigo-900/20 text-white">
@@ -1240,7 +1228,8 @@ export default function QuizPage() {
               </div>
             )}
 
-            {activeTab === "quiz" && quizStarted && selectedQuiz && (
+            {/* Quiz View */}
+            {activeTab === "quiz" && quizStarted && selectedQuiz && !quizCompleted && (
               <Card className="max-w-3xl mx-auto bg-gradient-to-br from-[#1a2234] to-[#131c31] border-indigo-900/20 text-white">
                 <CardHeader>
                   <div className="flex justify-between items-center">
@@ -1306,6 +1295,7 @@ export default function QuizPage() {
               </Card>
             )}
 
+            {/* Results View */}
             {quizCompleted && selectedQuiz && (
               <Card className="max-w-3xl mx-auto bg-gradient-to-br from-[#1a2234] to-[#131c31] border-indigo-900/20 text-white">
                 <CardHeader>
